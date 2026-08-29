@@ -1,0 +1,15 @@
+{
+  "name": "dsh-memory-plugin",
+  "version": "1.0.0",
+  "description": "dsh 文件式记忆库插件：会话引导提示 + memory_search / memory_sync 工具",
+  "type": "module",
+  "main": "index.mjs",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check": "node --check index.mjs"
+  }
+}
