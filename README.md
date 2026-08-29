@@ -23,8 +23,8 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 
 ## 依赖
 
-- **记忆数据仓库** `dsh-memory`（默认 `/mnt/smb/dsh-memory`）：含 PROTOCOL.md、MEMORY.md、MEMORY-<topic>.md、sessions/、scripts/memory_search.sh、scripts/memory_sync.sh
-- 目录可经 `config.memoryDir` 覆盖
+- **记忆数据仓库** `dsh-memory`（默认位于工作区根目录下的 `dsh-memory/`）：含 PROTOCOL.md、MEMORY.md、MEMORY-<topic>.md、sessions/、scripts/memory_search.sh、scripts/memory_sync.sh
+- **路径不固化（v1.1）**：记忆库定位优先级 = `config.memoryDir` > 环境变量 `DSH_MEMORY_DIR` > **从会话 cwd 向上动态发现 `dsh-memory/`**（含 MEMORY.md 即命中）> 兜底 `/mnt/smb/dsh-memory`。记忆库可整体搬迁（内部脚本均相对定位）
 
 ## 安装（本地 profile）
 
@@ -33,10 +33,10 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 ```yaml
 - insert:
     - id: dsh-memory
-      name: '/mnt/smb/dsh-memory-plugin/index.mjs'
+      name: '/绝对/路径/dsh-memory-plugin/index.mjs'
       config:
-        memoryDir: '/mnt/smb/dsh-memory'
         injectHint: true
+        # memoryDir 可选：默认动态发现（cwd 向上找 dsh-memory/），或设 DSH_MEMORY_DIR
 ```
 
 或直接运行：
@@ -44,7 +44,7 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 ```bash
 bash install.sh all        # web + dsh-tui 两个 profile（幂等）
 bash install.sh web        # 只装 web
-bash install.sh dsh-tui    # 只装 dsh-tui
+DSH_MEMORY_DIR=/自定义/路径 bash install.sh all   # 显式指定记忆库
 ```
 
 装完重启 dsh（`systemctl restart dsh-web` 或重开会话）生效。
@@ -53,7 +53,7 @@ bash install.sh dsh-tui    # 只装 dsh-tui
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `memoryDir` | `/mnt/smb/dsh-memory` | 记忆数据仓库路径 |
+| `memoryDir` | 动态发现 | 记忆数据仓库路径（显式指定后不再动态发现；也可用环境变量 `DSH_MEMORY_DIR`） |
 | `injectHint` | `true` | 是否注入会话引导提示 |
 
 ## 使用

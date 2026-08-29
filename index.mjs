@@ -1,5 +1,5 @@
 /**
- * dsh-memory — dsh 文件式记忆库插件（记忆方案 v1.0）
+ * dsh-memory — dsh 文件式记忆库插件（记忆方案 v1.1）
  *
  * 能力：
  *  1. 会话引导：会话首次工具调用（promotion）后，注入一次"记忆库存在"提示，
@@ -8,13 +8,17 @@
  *  2. memory_search：按关键词检索记忆库（调 dsh-memory/scripts/memory_search.sh）。
  *  3. memory_sync：git 提交并推送备份（merge 不 force-push，调 memory_sync.sh）。
  *
- * 依赖：记忆数据仓库 dsh-memory（默认 /mnt/smb/dsh-memory，含 scripts/）。
+ * 记忆库定位（v1.1 动态化，不再固化挂载点）：
+ *     config.memoryDir > 环境变量 DSH_MEMORY_DIR > 从会话 cwd 向上查找
+ *     dsh-memory/（含 MEMORY.md 即命中）> 兜底 /mnt/smb/dsh-memory
+ *
+ * 依赖：记忆数据仓库 dsh-memory（含 scripts/）。
  * 任何异常只降级为工具报错/跳过提示，绝不破坏会话。
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 const run = promisify(execFile)
 
@@ -24,8 +28,31 @@ export const name = 'dsh-memory'
 /** 需要 tools 服务先就绪。 */
 export const inject = ['tools']
 
-/** 默认记忆库位置（可用 config.memoryDir 覆盖）。 */
+/** 兜底位置（本机 fstab 固定挂载点；仅当动态发现全部失败时使用）。 */
 const DEFAULT_DIR = '/mnt/smb/dsh-memory'
+
+/**
+ * 解析记忆库目录：config.memoryDir > DSH_MEMORY_DIR > cwd 向上动态发现 > 兜底。
+ * @param {string} [base] 动态发现的起点（会话 cwd）
+ * @param {object} [config] 插件配置
+ * @param {object} [env] 环境变量（默认 process.env）
+ * @returns {string} 记忆库绝对路径
+ */
+export function resolveMemoryDir(base, config = {}, env = process.env) {
+  if (config.memoryDir) return resolve(config.memoryDir)
+  if (env.DSH_MEMORY_DIR) return resolve(env.DSH_MEMORY_DIR)
+  if (base) {
+    let cur = resolve(base)
+    for (;;) {
+      const candidate = join(cur, 'dsh-memory')
+      if (existsSync(join(candidate, 'MEMORY.md'))) return candidate
+      const parent = dirname(cur)
+      if (parent === cur) break
+      cur = parent
+    }
+  }
+  return resolve(DEFAULT_DIR)
+}
 
 /** 最小 JSON Schema 编译器（零依赖，同 skill-search 模式）。 */
 function toJsonSchema(spec) {
@@ -49,8 +76,19 @@ function textOutput() {
 }
 
 export function apply(ctx, config = {}) {
-  const memoryDir = resolve(config.memoryDir ?? DEFAULT_DIR)
   const hintEnabled = config.injectHint !== false
+
+  /* 每会话解析一次记忆库路径（动态发现，见 resolveMemoryDir） */
+  const dirCache = new Map()
+  const memoryDirFor = (session) => {
+    if (session === undefined) return resolveMemoryDir(undefined, config)
+    let dir = dirCache.get(session.id)
+    if (dir === undefined) {
+      dir = resolveMemoryDir(session.header?.cwd, config)
+      dirCache.set(session.id, dir)
+    }
+    return dir
+  }
 
   /* ── 1) 会话引导提示（promotion 后每会话一次，resume 安全） ─────────── */
 
@@ -73,6 +111,7 @@ export function apply(ctx, config = {}) {
         return decision
       }
       hinted.add(session.id)
+      const memoryDir = memoryDirFor(session)
       if (!existsSync(join(memoryDir, 'MEMORY.md'))) return decision
 
       const text = [
@@ -106,10 +145,11 @@ export function apply(ctx, config = {}) {
       keyword: { type: 'string', required: true, description: '搜索关键词（多个词用空格分隔，按或匹配）' },
     }),
     output: textOutput(),
-    async execute(args) {
+    async execute(args, exec) {
+      const memoryDir = memoryDirFor(exec?.agent?.session)
       const script = join(memoryDir, 'scripts', 'memory_search.sh')
       if (!existsSync(script)) {
-        return { text: `memory_search: 脚本不存在 ${script}（需先部署 dsh-memory 数据仓库）` }
+        return { text: `memory_search: 脚本不存在 ${script}（记忆库未部署 scripts/，可用 config.memoryDir 或 DSH_MEMORY_DIR 指定）` }
       }
       try {
         const { stdout } = await run('bash', [script, args.keyword], { timeout: 15000 })
@@ -129,10 +169,11 @@ export function apply(ctx, config = {}) {
       message: { type: 'string', description: '提交说明（可选，默认自动生成时间戳）' },
     }),
     output: textOutput(),
-    async execute(args) {
+    async execute(args, exec) {
+      const memoryDir = memoryDirFor(exec?.agent?.session)
       const script = join(memoryDir, 'scripts', 'memory_sync.sh')
       if (!existsSync(script)) {
-        return { text: `memory_sync: 脚本不存在 ${script}（需先部署 dsh-memory 数据仓库）` }
+        return { text: `memory_sync: 脚本不存在 ${script}（记忆库未部署 scripts/）` }
       }
       try {
         const { stdout } = await run('bash', [script, args.message ?? ''], { timeout: 60000 })
