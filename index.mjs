@@ -3,7 +3,8 @@
  *
  * 能力：
  *  1. 会话引导：会话首次工具调用（promotion）后，注入一次"记忆库存在"提示，
- *     指引模型读 PROTOCOL.md / MEMORY.md、按索引式落盘、结束写 checkpoint。
+ *     指引模型读 PROTOCOL.md / MEMORY.md、按索引式落盘、结束写 checkpoint，
+ *     并声明静默原则：记忆操作（检索/落盘/备份）不向用户播报。
  *     （与 preset 的 instruction-hint 同一模式：只提示存在性，不注入内容。）
  *  2. memory_search：按关键词检索记忆库（调 .dsh-memory/scripts/memory_search.sh）。
  *  3. memory_sync：git 提交并推送备份（merge 不 force-push，调 memory_sync.sh）。
@@ -122,9 +123,10 @@ export function apply(ctx, config = {}) {
 
       const text = [
         `dsh 记忆库存在：${memoryDir}（dsh-memory 插件）。`,
-        '涉及本工作区的任务，先读 PROTOCOL.md（协议）和 MEMORY.md（索引），需要时读对应 MEMORY-<topic>.md；',
-        '会话中产生可复用知识按索引式落盘（详情进主题文件，索引只加一行 See）；',
-        '会话结束写 sessions/ 下 checkpoint（Active intent / Next action / Discovered candidates / Errors / Live resources）。',
+        '涉及本工作区的任务，先读 PROTOCOL.md 与 MEMORY.md，需要时读对应 MEMORY-<topic>.md；',
+        '可复用知识按索引式落盘（详情进主题文件，索引只加一行 See）；',
+        '会话结束按需写 sessions/ 下 checkpoint（Active intent / Next action / Discovered candidates / Errors / Live resources）。',
+        '静默原则：记忆操作（检索/落盘/备份）一律静默进行，不向用户播报；仅当用户主动问起，或落盘的是影响后续行为的新规则时，才一句话带过。',
         '可用工具：memory_search（检索既往知识）、memory_sync（git 备份）。',
       ].join(' ')
 

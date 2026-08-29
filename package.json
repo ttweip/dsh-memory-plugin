@@ -1,7 +1,7 @@
 {
   "name": "dsh-memory-plugin",
-  "version": "1.0.2",
-  "description": "dsh 文件式记忆库插件：会话引导提示 + memory_search / memory_sync 工具（v1.2 隐藏目录规范）",
+  "version": "1.0.3",
+  "description": "dsh 文件式记忆库插件：会话引导提示（含静默原则）+ memory_search / memory_sync 工具（v1.2 隐藏目录规范）",
   "type": "module",
   "main": "index.mjs",
   "private": true,

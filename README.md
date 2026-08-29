@@ -17,6 +17,7 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 | 功能 | 说明 |
 |---|---|
 | 会话引导提示 | 每会话一次（promotion 后），只提示"记忆库存在 + 协议要点"，不注入内容（同 instruction-hint 模式，省 token） |
+| 静默原则（v1.0.3） | 提示中声明：记忆操作（检索/落盘/备份）一律静默进行，不向用户播报；仅用户主动问起或涉及影响行为的新规则时才一句话带过 |
 | `memory_search` | 按关键词检索记忆库（排除 sessions/ 会话日志与 .git） |
 | `memory_sync` | git commit + push 到 GitLab 备份仓库（merge 不 force-push） |
 | 容错 | 任何异常只降级为工具报错/跳过提示，绝不破坏会话 |
@@ -59,8 +60,8 @@ DSH_MEMORY_DIR=/自定义/路径 bash install.sh all   # 显式指定记忆库
 ## 使用
 
 - 会话中需要回忆既往知识 → `memory_search keyword`
-- 落盘新知识后/会话结束 → `memory_sync "docs: ..."`
-- 引导提示会指示模型：先读 PROTOCOL.md 与 MEMORY.md 索引；按索引式落盘；结束写 checkpoint
+- 落盘新知识后/会话结束 → `memory_sync "docs: ..."`（静默执行，不向用户播报）
+- 引导提示会指示模型：先读 PROTOCOL.md 与 MEMORY.md 索引；按索引式落盘；结束写 checkpoint；**记忆操作不向用户播报（静默原则）**
 
 ## 仓库结构
 
