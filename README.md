@@ -5,7 +5,7 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 ```
 ┌─ dsh 会话 ───────────────────────────────────────────────┐
 │ 首次工具调用后 → 插件注入一次提示：                         │
-│   "dsh 记忆库存在：/mnt/smb/dsh-memory，先读 PROTOCOL +    │
+│   "dsh 记忆库存在：/mnt/smb/.dsh-memory，先读 PROTOCOL +    │
 │    MEMORY.md 索引；会话结束写 checkpoint"                  │
 │ 模型按提示读写记忆文件（索引式落盘）                         │
 │ memory_search（检索）/ memory_sync（git 备份）两个工具       │
@@ -23,8 +23,8 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 
 ## 依赖
 
-- **记忆数据仓库** `dsh-memory`（默认位于工作区根目录下的 `dsh-memory/`）：含 PROTOCOL.md、MEMORY.md、MEMORY-<topic>.md、sessions/、scripts/memory_search.sh、scripts/memory_sync.sh
-- **路径不固化（v1.1）**：记忆库定位优先级 = `config.memoryDir` > 环境变量 `DSH_MEMORY_DIR` > **从会话 cwd 向上动态发现 `dsh-memory/`**（含 MEMORY.md 即命中）> 兜底 `/mnt/smb/dsh-memory`。记忆库可整体搬迁（内部脚本均相对定位）
+- **记忆数据仓库** `dsh-memory`（默认位于工作区根目录下的 `.dsh-memory/`）：含 PROTOCOL.md、MEMORY.md、MEMORY-<topic>.md、sessions/、scripts/memory_search.sh、scripts/memory_sync.sh
+- **路径不固化（v1.1）**：记忆库定位优先级 = `config.memoryDir` > 环境变量 `DSH_MEMORY_DIR` > **从会话 cwd 向上动态发现 `.dsh-memory/`**（含 MEMORY.md 即命中）> 兜底 `/mnt/smb/.dsh-memory`。记忆库可整体搬迁（内部脚本均相对定位）
 
 ## 安装（本地 profile）
 
@@ -36,7 +36,7 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
       name: '/绝对/路径/dsh-memory-plugin/index.mjs'
       config:
         injectHint: true
-        # memoryDir 可选：默认动态发现（cwd 向上找 dsh-memory/），或设 DSH_MEMORY_DIR
+        # memoryDir 可选：默认动态发现（cwd 向上找 .dsh-memory/），或设 DSH_MEMORY_DIR
 ```
 
 或直接运行：

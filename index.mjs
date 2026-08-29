@@ -1,18 +1,19 @@
 /**
- * dsh-memory — dsh 文件式记忆库插件（记忆方案 v1.1）
+ * dsh-memory — dsh 文件式记忆库插件（记忆方案 v1.2）
  *
  * 能力：
  *  1. 会话引导：会话首次工具调用（promotion）后，注入一次"记忆库存在"提示，
  *     指引模型读 PROTOCOL.md / MEMORY.md、按索引式落盘、结束写 checkpoint。
  *     （与 preset 的 instruction-hint 同一模式：只提示存在性，不注入内容。）
- *  2. memory_search：按关键词检索记忆库（调 dsh-memory/scripts/memory_search.sh）。
+ *  2. memory_search：按关键词检索记忆库（调 .dsh-memory/scripts/memory_search.sh）。
  *  3. memory_sync：git 提交并推送备份（merge 不 force-push，调 memory_sync.sh）。
  *
- * 记忆库定位（v1.1 动态化，不再固化挂载点）：
+ * 记忆库定位（v1.2 隐藏目录规范）：
  *     config.memoryDir > 环境变量 DSH_MEMORY_DIR > 从会话 cwd 向上查找
- *     dsh-memory/（含 MEMORY.md 即命中）> 兜底 /mnt/smb/dsh-memory
+ *     .dsh-memory/（隐藏目录，含 MEMORY.md 即命中；兼容旧名 dsh-memory/）
+ *     > 兜底 /mnt/smb/.dsh-memory
  *
- * 依赖：记忆数据仓库 dsh-memory（含 scripts/）。
+ * 依赖：记忆数据仓库 .dsh-memory（含 scripts/）。
  * 任何异常只降级为工具报错/跳过提示，绝不破坏会话。
  */
 import { execFile } from 'node:child_process'
@@ -29,7 +30,10 @@ export const name = 'dsh-memory'
 export const inject = ['tools']
 
 /** 兜底位置（本机 fstab 固定挂载点；仅当动态发现全部失败时使用）。 */
-const DEFAULT_DIR = '/mnt/smb/dsh-memory'
+const DEFAULT_DIR = '/mnt/smb/.dsh-memory'
+
+/** 向上查找的候选目录名：规范 .dsh-memory（隐藏），兼容 dsh-memory（旧名）。 */
+const CANDIDATE_NAMES = ['.dsh-memory', 'dsh-memory']
 
 /**
  * 解析记忆库目录：config.memoryDir > DSH_MEMORY_DIR > cwd 向上动态发现 > 兜底。
@@ -44,8 +48,10 @@ export function resolveMemoryDir(base, config = {}, env = process.env) {
   if (base) {
     let cur = resolve(base)
     for (;;) {
-      const candidate = join(cur, 'dsh-memory')
-      if (existsSync(join(candidate, 'MEMORY.md'))) return candidate
+      for (const candidate of CANDIDATE_NAMES) {
+        const dir = join(cur, candidate)
+        if (existsSync(join(dir, 'MEMORY.md'))) return dir
+      }
       const parent = dirname(cur)
       if (parent === cur) break
       cur = parent
