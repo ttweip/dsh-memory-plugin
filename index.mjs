@@ -78,6 +78,16 @@ function toJsonSchema(spec) {
   return { type: 'object', properties, required, additionalProperties: false }
 }
 
+/**
+ * 把 memory_search 关键词串拆成多个词（空白分隔，按或匹配）。
+ * 纯函数，便于单测。
+ * @param {string} keyword
+ * @returns {string[]}
+ */
+export function parseKeywords(keyword) {
+  return String(keyword ?? '').trim().split(/\s+/).filter(Boolean)
+}
+
 /** 统一工具输出结构。 */
 function textOutput() {
   return {
@@ -163,7 +173,7 @@ export function apply(ctx, config = {}) {
       if (!existsSync(script)) {
         return { text: `memory_search: 脚本不存在 ${script}（记忆库未部署 scripts/，可用 config.memoryDir 或 DSH_MEMORY_DIR 指定）` }
       }
-      const keywords = String(args.keyword ?? '').trim().split(/\s+/).filter(Boolean)
+      const keywords = parseKeywords(args.keyword)
       if (keywords.length === 0) {
         return { text: 'memory_search: 缺少关键词。用法：memory_search "关键词1 关键词2"（多词按或匹配）' }
       }

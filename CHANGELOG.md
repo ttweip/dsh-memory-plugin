@@ -1,0 +1,37 @@
+# Changelog
+
+## v1.1.0（2026-09-02）
+
+### 检索体验（memory_search；配套记忆库 deploy/dsh-memory 的 scripts/memory_search.sh）
+- 输出结构化：按文件聚合排序（命中行数 desc，同分按文件更新时间新优先），保留行号
+- 命中带 1 行下文上下文；单行超长（>280 字符）自动截断（MEMORY_SEARCH_LINE_WIDTH 可调）
+- 截断透明：默认最多 5 个文件 / 每文件 8 行 / 全局 60 行（MEMORY_SEARCH_MAX_* 可调），并提示剩余未列出
+- checkpoint 区仅在关键词命中 sessions/ 时列出（消除此前固定刷 3 条的假命中噪音）
+- 0 命中给出换词 / 看索引提示
+- 匹配改 grep -F 字面（多关键词 OR），消除正则转义边界问题（此前 `]` `-` 等字符未转义）
+
+### 工程化
+- node:test 单测（test/memory.test.mjs：resolveMemoryDir 优先级矩阵、parseKeywords），`npm test` 全绿
+- 关键词拆词逻辑抽为导出纯函数 parseKeywords（v1.0.4 修复的回归由单测兜底）
+- install.sh 新增 `update`（GitLab → GitHub 拉最新 tag 覆盖本地目录并重装配置）与 `uninstall`（精确摘除 patch 块，支持块位于文件中间）；幂等检测改块标记精确匹配
+
+### 协议配套（记忆库 deploy/dsh-memory）
+- checkpoint 命名建议加 HHMM：`YYYY-MM-DD-HHMM-<简述>.md`（防同日覆盖）
+
+## v1.0.4（2026-09-02）
+- memory_search 多词 OR 拆词生效（此前整串字面匹配）；空关键词给出用法提示
+- memory_sync 超时 60s → 120s（config.syncTimeoutMs 可调），新增 searchTimeoutMs
+- 工具错误详情透出 stdout/stderr，便于排障
+- 配套 memory_sync.sh 重写：remote URL 内嵌凭据自动剥离（防 token 落盘）、pull --rebase 冲突检测中止、flock 并发互斥、git HTTP 低速超时
+
+## v1.0.3（2026-08-29）
+- 静默原则：会话引导提示声明记忆操作（检索/落盘/备份）不向用户播报
+
+## v1.0.2（2026-08-29）
+- 记忆库改隐藏目录 `.dsh-memory/`，插件目录同步 `.dsh-memory-plugin/`；动态发现优先新名、兼容旧名
+
+## v1.0.1（2026-08-29）
+- 路径去固化：`config.memoryDir > DSH_MEMORY_DIR > 会话 cwd 向上发现 > 兜底`
+
+## v1.0.0（2026-08-29）
+- 首个版本：会话引导提示（promotion 后每会话一次）+ memory_search / memory_sync 工具 + install.sh 幂等安装

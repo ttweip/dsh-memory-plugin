@@ -18,7 +18,7 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 |---|---|
 | 会话引导提示 | 每会话一次（promotion 后），只提示"记忆库存在 + 协议要点"，不注入内容（同 instruction-hint 模式，省 token） |
 | 静默原则（v1.0.3） | 提示中声明：记忆操作（检索/落盘/备份）一律静默进行，不向用户播报；仅用户主动问起或涉及影响行为的新规则时才一句话带过 |
-| `memory_search` | 按关键词检索记忆库（排除 sessions/ 会话日志与 .git） |
+| `memory_search` | 按关键词检索记忆库（多词 OR；按文件聚合排序输出，排除 sessions/ 会话日志与 .git） |
 | `memory_sync` | git commit + push 到 GitLab 备份仓库（merge 不 force-push） |
 | 容错 | 任何异常只降级为工具报错/跳过提示，绝不破坏会话 |
 
@@ -46,6 +46,9 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 bash install.sh all        # web + dsh-tui 两个 profile（幂等）
 bash install.sh web        # 只装 web
 DSH_MEMORY_DIR=/自定义/路径 bash install.sh all   # 显式指定记忆库
+
+bash install.sh update     # 更新：拉 GitLab/GitHub 最新 tag 覆盖插件目录并重装配置
+bash install.sh uninstall  # 卸载：从 patch.yml 精确摘除本插件块
 ```
 
 装完重启 dsh（`systemctl restart dsh-web` 或重开会话）生效。
@@ -71,7 +74,9 @@ DSH_MEMORY_DIR=/自定义/路径 bash install.sh all   # 显式指定记忆库
 dsh-memory-plugin/
 ├── index.mjs        # Cordis 插件本体（name/apply，零依赖）
 ├── package.json
-├── install.sh       # 本地安装脚本（幂等）
+├── install.sh       # 安装/更新/卸载脚本（幂等）
+├── CHANGELOG.md     # 版本变更记录
+├── test/            # node:test 单测（npm test）
 └── README.md
 ```
 

@@ -1,0 +1,77 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { resolveMemoryDir, parseKeywords } from '../index.mjs'
+
+/** 造一个含 MEMORY.md 的记忆库目录 */
+function makeRepo(root, name) {
+  const dir = join(root, name)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'MEMORY.md'), '# mem\n')
+  return dir
+}
+
+function tmpRoot() {
+  return mkdtempSync(join(tmpdir(), 'dsh-mem-test-'))
+}
+
+test('parseKeywords：空白拆词、去空、容错', () => {
+  assert.deepEqual(parseKeywords('静默 GitLab'), ['静默', 'GitLab'])
+  assert.deepEqual(parseKeywords('  a   b  '), ['a', 'b'])
+  assert.deepEqual(parseKeywords('单'), ['单'])
+  assert.deepEqual(parseKeywords(''), [])
+  assert.deepEqual(parseKeywords('   '), [])
+  assert.deepEqual(parseKeywords(undefined), [])
+  assert.deepEqual(parseKeywords(null), [])
+})
+
+test('resolveMemoryDir：config.memoryDir 最高优先（压过 env 与发现）', () => {
+  const root = tmpRoot()
+  try {
+    const a = makeRepo(root, '.dsh-memory')
+    const b = makeRepo(root, 'other')
+    assert.equal(resolveMemoryDir(root, { memoryDir: b }), b)
+    assert.equal(resolveMemoryDir(root, { memoryDir: b }, { DSH_MEMORY_DIR: a }), b)
+    assert.equal(resolveMemoryDir(undefined, { memoryDir: b }), b)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('resolveMemoryDir：DSH_MEMORY_DIR 次之', () => {
+  const root = tmpRoot()
+  try {
+    const a = makeRepo(root, '.dsh-memory')
+    assert.equal(resolveMemoryDir('/unrelated', {}, { DSH_MEMORY_DIR: a }), a)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('resolveMemoryDir：cwd 向上动态发现（就近命中、新名优先旧名）', () => {
+  const root = tmpRoot()
+  try {
+    const hidden = makeRepo(root, '.dsh-memory')              // 顶层：规范隐藏名
+    const legacy = makeRepo(join(root, 'sub'), 'dsh-memory')  // 深层：旧名
+    mkdirSync(join(root, 'sub', 'deep'), { recursive: true })
+
+    // 从 deep 逐级向上：在 sub 层命中旧名（就近原则）
+    assert.equal(resolveMemoryDir(join(root, 'sub', 'deep')), legacy)
+    // 从 root 层：命中顶层 .dsh-memory
+    assert.equal(resolveMemoryDir(root), hidden)
+    // 同一层同时存在新旧名 → 规范名优先
+    const both = tmpRoot()
+    try {
+      const h2 = makeRepo(both, '.dsh-memory')
+      makeRepo(both, 'dsh-memory')
+      assert.equal(resolveMemoryDir(both), h2)
+    } finally { rmSync(both, { recursive: true, force: true }) }
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('resolveMemoryDir：无命中时走兜底', () => {
+  const root = tmpRoot()
+  try {
+    const empty = join(root, 'nothing-here')
+    mkdirSync(empty, { recursive: true })
+    assert.equal(resolveMemoryDir(empty), resolveMemoryDir()) // 与默认兜底一致
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
