@@ -56,6 +56,8 @@ DSH_MEMORY_DIR=/自定义/路径 bash install.sh all   # 显式指定记忆库
 |---|---|---|
 | `memoryDir` | 动态发现 | 记忆数据仓库路径（显式指定后不再动态发现；也可用环境变量 `DSH_MEMORY_DIR`） |
 | `injectHint` | `true` | 是否注入会话引导提示 |
+| `searchTimeoutMs` | `15000` | memory_search 脚本执行超时（毫秒） |
+| `syncTimeoutMs` | `120000` | memory_sync 脚本执行超时（毫秒） |
 
 ## 使用
 

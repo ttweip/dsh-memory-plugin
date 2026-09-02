@@ -7,7 +7,11 @@
  *     并声明静默原则：记忆操作（检索/落盘/备份）不向用户播报。
  *     （与 preset 的 instruction-hint 同一模式：只提示存在性，不注入内容。）
  *  2. memory_search：按关键词检索记忆库（调 .dsh-memory/scripts/memory_search.sh）。
+ *     多关键词以空白分隔、按或（OR）匹配（v1.0.4 修复：此前整串字面匹配）。
  *  3. memory_sync：git 提交并推送备份（merge 不 force-push，调 memory_sync.sh）。
+ *
+ * 配置项（config）：memoryDir / injectHint / searchTimeoutMs（默认 15000）/
+ *     syncTimeoutMs（默认 120000）
  *
  * 记忆库定位（v1.2 隐藏目录规范）：
  *     config.memoryDir > 环境变量 DSH_MEMORY_DIR > 从会话 cwd 向上查找
@@ -159,11 +163,16 @@ export function apply(ctx, config = {}) {
       if (!existsSync(script)) {
         return { text: `memory_search: 脚本不存在 ${script}（记忆库未部署 scripts/，可用 config.memoryDir 或 DSH_MEMORY_DIR 指定）` }
       }
+      const keywords = String(args.keyword ?? '').trim().split(/\s+/).filter(Boolean)
+      if (keywords.length === 0) {
+        return { text: 'memory_search: 缺少关键词。用法：memory_search "关键词1 关键词2"（多词按或匹配）' }
+      }
       try {
-        const { stdout } = await run('bash', [script, args.keyword], { timeout: 15000 })
+        const { stdout } = await run('bash', [script, ...keywords], { timeout: config.searchTimeoutMs ?? 15000 })
         return { text: stdout || '无命中。' }
       } catch (error) {
-        return { text: `memory_search 失败：${String((error && error.message) || error)}` }
+        const detail = error && (error.stdout || error.stderr || error.message)
+        return { text: `memory_search 失败：${String(detail || error).trim()}` }
       }
     },
   })
@@ -184,10 +193,11 @@ export function apply(ctx, config = {}) {
         return { text: `memory_sync: 脚本不存在 ${script}（记忆库未部署 scripts/）` }
       }
       try {
-        const { stdout } = await run('bash', [script, args.message ?? ''], { timeout: 60000 })
+        const { stdout } = await run('bash', [script, args.message ?? ''], { timeout: config.syncTimeoutMs ?? 120000 })
         return { text: stdout }
       } catch (error) {
-        return { text: `memory_sync 失败：${String((error && error.message) || error)}` }
+        const detail = error && (error.stdout || error.stderr || error.message)
+        return { text: `memory_sync 失败：${String(detail || error).trim()}` }
       }
     },
   })
