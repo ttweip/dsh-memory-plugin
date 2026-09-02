@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.2.0（2026-09-02）
+
+### 写入口规范化：memory_add（配套记忆库 deploy/dsh-memory 的 scripts/memory_add.py）
+- 新工具 `memory_add {topic, title, body}`：落盘推荐写入口
+  - 条目自动追加到 `MEMORY-<topic>.md`（不存在则自动新建，带头部）
+  - **MEMORY.md 的 See 索引计数自动维护**——按真实条目数重算，可校正历史漂移（此前索引与内容脱节是主要乱源）
+  - 同主题同标题自动拒绝，防重复落盘
+  - topic 清洗防路径穿越；body 换行压缩为单行（与既有条目格式一致）；日期自动附加
+- 会话引导提示更新：memory_add 列为推荐写入口
+- 新增 `addTimeoutMs` 配置（默认 15000）
+
+### 防泄漏审计（配套记忆库 scripts/audit_secrets.sh）
+- 拦截 GitLab/GitHub PAT、私钥、URL 内嵌密码进入 git；占位符（`<PAT>` `${VAR}` `***` `ChangeMe_*`）豁免
+- `audit_secrets.sh --install` 安装 pre-commit hook（.git/hooks 不随仓库备份，clone/搬迁后重装）
+- 自测 `--test` 内置；记忆库已装 hook 并实测 commit 通过
+
+### 协议配套（记忆库 deploy/dsh-memory，PROTOCOL v1.1）
+- memory_add 为推荐写入口；新增防泄漏审计章节
+
 ## v1.1.0（2026-09-02）
 
 ### 检索体验（memory_search；配套记忆库 deploy/dsh-memory 的 scripts/memory_search.sh）

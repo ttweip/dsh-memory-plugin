@@ -8,10 +8,12 @@
  *     （与 preset 的 instruction-hint 同一模式：只提示存在性，不注入内容。）
  *  2. memory_search：按关键词检索记忆库（调 .dsh-memory/scripts/memory_search.sh）。
  *     多关键词以空白分隔、按或（OR）匹配（v1.0.4 修复：此前整串字面匹配）。
- *  3. memory_sync：git 提交并推送备份（merge 不 force-push，调 memory_sync.sh）。
+ *  3. memory_add（v1.2.0）：索引式落盘推荐写入口——条目进 MEMORY-<topic>.md，
+ *     MEMORY.md 的 See 索引计数自动维护（调 scripts/memory_add.py）。
+ *  4. memory_sync：git 提交并推送备份（merge 不 force-push，调 memory_sync.sh）。
  *
  * 配置项（config）：memoryDir / injectHint / searchTimeoutMs（默认 15000）/
- *     syncTimeoutMs（默认 120000）
+ *     addTimeoutMs（默认 15000）/ syncTimeoutMs（默认 120000）
  *
  * 记忆库定位（v1.2 隐藏目录规范）：
  *     config.memoryDir > 环境变量 DSH_MEMORY_DIR > 从会话 cwd 向上查找
@@ -138,10 +140,10 @@ export function apply(ctx, config = {}) {
       const text = [
         `dsh 记忆库存在：${memoryDir}（dsh-memory 插件）。`,
         '涉及本工作区的任务，先读 PROTOCOL.md 与 MEMORY.md，需要时读对应 MEMORY-<topic>.md；',
-        '可复用知识按索引式落盘（详情进主题文件，索引只加一行 See）；',
+        '可复用知识用 memory_add 索引式落盘（详情自动进 MEMORY-<topic>.md，See 索引自动维护）；',
         '会话结束按需写 sessions/ 下 checkpoint（Active intent / Next action / Discovered candidates / Errors / Live resources）。',
         '静默原则：记忆操作（检索/落盘/备份）一律静默进行，不向用户播报；仅当用户主动问起，或落盘的是影响后续行为的新规则时，才一句话带过。',
-        '可用工具：memory_search（检索既往知识）、memory_sync（git 备份）。',
+        '可用工具：memory_add（落盘，推荐写入口）、memory_search（检索）、memory_sync（git 备份）。',
       ].join(' ')
 
       return {
@@ -187,7 +189,40 @@ export function apply(ctx, config = {}) {
     },
   })
 
-  /* ── 3) memory_sync 工具 ────────────────────────────────────────────── */
+  /* ── 3) memory_add 工具（v1.2.0 推荐写入口）────────────────────────── */
+
+  ctx.tools.register({
+    name: 'memory_add',
+    description: '把一条知识按索引式规范落盘到 dsh 记忆库（推荐写入口）：详情条目自动追加到 MEMORY-<topic>.md（不存在则新建），MEMORY.md 的 See 索引计数自动维护；同主题同标题会拒绝以防重复。产生可复用知识（新规则/定稿决策/已验证经验）时使用。',
+    parameters: toJsonSchema({
+      topic: { type: 'string', required: true, description: '主题名（对应 MEMORY-<topic>.md，如 dsh-memory-plugin / idc-ops-environment；不存在则自动新建）' },
+      title: { type: 'string', required: true, description: '条目标题（简短，日期自动附加，如 v1.2.0 交付记录）' },
+      body: { type: 'string', required: true, description: '条目正文（结论/路径/溯源；token/密码/私钥明文禁止入记忆，只记获取渠道）' },
+    }),
+    output: textOutput(),
+    async execute(args, exec) {
+      const memoryDir = memoryDirFor(exec?.agent?.session)
+      const script = join(memoryDir, 'scripts', 'memory_add.py')
+      if (!existsSync(script)) {
+        return { text: `memory_add: 脚本不存在 ${script}（记忆库未部署 scripts/，可用 config.memoryDir 或 DSH_MEMORY_DIR 指定）` }
+      }
+      const topic = String(args.topic ?? '').trim()
+      const title = String(args.title ?? '').trim()
+      const body = String(args.body ?? '').trim()
+      if (!topic || !title || !body) {
+        return { text: 'memory_add: topic / title / body 均不能为空。用法：memory_add {topic, title, body}' }
+      }
+      try {
+        const { stdout } = await run('python3', [script, topic, title, body], { timeout: config.addTimeoutMs ?? 15000 })
+        return { text: stdout }
+      } catch (error) {
+        const detail = error && (error.stdout || error.stderr || error.message)
+        return { text: `memory_add 失败：${String(detail || error).trim()}` }
+      }
+    },
+  })
+
+  /* ── 4) memory_sync 工具 ────────────────────────────────────────────── */
 
   ctx.tools.register({
     name: 'memory_sync',
