@@ -165,8 +165,8 @@ case "$action" in
     ;;
   update)
     update_files
-    for p in "${targets[@]}"; do install_to "$p"; done
-    echo "更新完成（dsh-tui 新会话生效；dsh-web 需 systemctl restart dsh-web）"
+    # L2 修复：install.sh 已被更新内容覆盖，exec 新脚本执行 install（避免旧 fd 继续读被覆盖文件）
+    exec "$SELF" install "${targets[@]}"
     ;;
   uninstall)
     for p in "${targets[@]}"; do uninstall_from "$p"; done

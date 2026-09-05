@@ -93,21 +93,26 @@ export function parseKeywords(keyword) {
 /**
  * 从 checkpoint 文本提取 Active intent / Next action 摘要。
  * 护栏（PROTOCOL §7）：只取这两节、总长 200 字上限、不取 Current work 等详情。
+ * 逐行解析（L1 修复：空节不吞下一节；CRLF 兼容）。
  * 纯函数，便于单测。
  * @param {string} text checkpoint 文件内容
  * @returns {string} 摘要（无则空串）
  */
 export function extractCheckpointSummary(text) {
+  const wanted = { 'Active intent': [], 'Next action': [] }
+  let cur = null
+  for (const raw of String(text ?? '').split(/\r?\n/)) {
+    const head = raw.match(/^##\s+(\S.*)$/)
+    if (head) {
+      cur = Object.prototype.hasOwnProperty.call(wanted, head[1]) ? head[1] : null
+      continue
+    }
+    const line = raw.trim()
+    if (cur && line && !line.startsWith('#')) wanted[cur].push(line)
+  }
   const parts = []
   for (const name of ['Active intent', 'Next action']) {
-    const re = new RegExp(`##\\s+${name}[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)`)
-    const m = String(text ?? '').match(re)
-    if (!m) continue
-    const body = m[1].split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith('#'))
-      .join(' ')
-    if (body) parts.push(`${name}: ${body}`)
+    if (wanted[name].length) parts.push(`${name}: ${wanted[name].join(' ')}`)
   }
   const joined = parts.join(' ｜ ')
   return joined.length > 200 ? `${joined.slice(0, 200)}…` : joined

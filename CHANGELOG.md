@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.4.1（2026-09-05，独立代码审查修复版）
+
+- **H1** memory_sync：remote 剥离只处理 `user:pass@`（`ssh://user@host` 不再被误剥坏配置）；分支动态取（不硬编码 main）
+- **H2** memory_search：`grep -c` 无匹配双行输出 bug（报告体文件不再每次检索刷 stderr）
+- **M1** 选项只解析首个参数，`--all` 等出现在第二参数时按字面关键词搜索
+- **M2** `--all` 归档组独立输出额度，不再被知识组挤空
+- **M3** audit 自测退出码真实传回（此前恒绿）
+- **M4** memory_add：title 换行清洗 + 尾部自带日期不重复附加 + **查重改逐行精确匹配**（修复「条1」误杀「条10」→ 并发丢条真凶）；锁文件改 `a` 模式（`w` 截断导致 flock 互斥失效）
+- **L1** checkpoint 摘要改逐行解析（空节不吞下一节，CRLF 兼容）
+- **L2** install.sh update 覆盖后 exec 重执行
+- **L4** audit --install 覆盖前备份旧 hook
+- **L5** 归档判定收紧（只认头部 `状态：Archived` 标记）
+- **L6** `--include-scripts` 真实生效（并入主排序）
+- **新增** 记忆库 `scripts/selfcheck.sh` 自检套件（31 用例全绿）+ 插件单测 10/10
+
 ## v1.4.0（2026-09-05，合并原 v1.3 检索增强 + v1.4 续接体验）
 
 ### 检索增强（配套记忆库 scripts/memory_search.sh + synonyms.tsv）

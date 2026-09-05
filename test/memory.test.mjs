@@ -109,3 +109,23 @@ test('extractCheckpointSummary：缺节/空文本返回空串', () => {
   assert.equal(extractCheckpointSummary(''), '')
   assert.equal(extractCheckpointSummary(undefined), '')
 })
+
+test('extractCheckpointSummary：空节不吞下一节（L1 回归）', () => {
+  const cp = `# c
+## Active intent
+## Next action
+做 x
+## Current work
+y`
+  const s = extractCheckpointSummary(cp)
+  assert.ok(s.includes('Next action: 做 x'))
+  assert.ok(!s.includes('Active intent'))
+  assert.ok(!s.includes('Current work'))
+})
+
+test('extractCheckpointSummary：CRLF 与多行正文', () => {
+  const cp = '# c\r\n## Active intent\r\n第一行\r\n第二行\r\n## Next action\r\n下一\r\n'
+  const s = extractCheckpointSummary(cp)
+  assert.ok(s.includes('Active intent: 第一行 第二行'))
+  assert.ok(s.includes('Next action: 下一'))
+})
