@@ -25,8 +25,8 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { existsSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { basename, dirname, join, resolve } from 'node:path'
 
 const run = promisify(execFile)
 
@@ -90,6 +90,43 @@ export function parseKeywords(keyword) {
   return String(keyword ?? '').trim().split(/\s+/).filter(Boolean)
 }
 
+/**
+ * 从 checkpoint 文本提取 Active intent / Next action 摘要。
+ * 护栏（PROTOCOL §7）：只取这两节、总长 200 字上限、不取 Current work 等详情。
+ * 纯函数，便于单测。
+ * @param {string} text checkpoint 文件内容
+ * @returns {string} 摘要（无则空串）
+ */
+export function extractCheckpointSummary(text) {
+  const parts = []
+  for (const name of ['Active intent', 'Next action']) {
+    const re = new RegExp(`##\\s+${name}[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)`)
+    const m = String(text ?? '').match(re)
+    if (!m) continue
+    const body = m[1].split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('#'))
+      .join(' ')
+    if (body) parts.push(`${name}: ${body}`)
+  }
+  const joined = parts.join(' ｜ ')
+  return joined.length > 200 ? `${joined.slice(0, 200)}…` : joined
+}
+
+/** sessions/ 下最新一份 checkpoint 的绝对路径；无则 null。 */
+function latestCheckpoint(memoryDir) {
+  try {
+    const dir = join(memoryDir, 'sessions')
+    if (!existsSync(dir)) return null
+    const files = readdirSync(dir).filter((f) => f.endsWith('.md'))
+    if (files.length === 0) return null
+    files.sort((a, b) => statSync(join(dir, b)).mtimeMs - statSync(join(dir, a)).mtimeMs)
+    return join(dir, files[0])
+  } catch {
+    return null
+  }
+}
+
 /** 统一工具输出结构。 */
 function textOutput() {
   return {
@@ -146,12 +183,22 @@ export function apply(ctx, config = {}) {
         '可用工具：memory_add（落盘，推荐写入口）、memory_search（检索）、memory_sync（git 备份）。',
       ].join(' ')
 
+      // 护栏（PROTOCOL §7）：checkpoint 摘要注入默认关闭，开启后只带两节、200 字上限
+      let fullText = text
+      if (config.injectRecentCheckpoint === true) {
+        const cp = latestCheckpoint(memoryDir)
+        if (cp) {
+          const summary = extractCheckpointSummary(readFileSync(cp, 'utf-8'))
+          if (summary) fullText += `【上次会话 checkpoint：${basename(cp)}】${summary}`
+        }
+      }
+
       return {
         ...decision,
         messages: [...decision.messages, {
           id: `dsh-memory-hint-${session.id}`,
           role: 'user',
-          content: [{ type: 'text', text }],
+          content: [{ type: 'text', text: fullText }],
           source: { kind: 'dsh-memory-hint', form: 'hint' },
         }],
       }

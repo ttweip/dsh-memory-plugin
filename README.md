@@ -60,6 +60,7 @@ bash install.sh uninstall  # 卸载：从 patch.yml 精确摘除本插件块
 |---|---|---|
 | `memoryDir` | 动态发现 | 记忆数据仓库路径（显式指定后不再动态发现；也可用环境变量 `DSH_MEMORY_DIR`） |
 | `injectHint` | `true` | 是否注入会话引导提示 |
+| `injectRecentCheckpoint` | `false` | 引导提示是否附带最近 checkpoint 摘要（护栏：仅 Active intent/Next action 两节、200 字上限，按工作区显式开启） |
 | `searchTimeoutMs` | `15000` | memory_search 脚本执行超时（毫秒） |
 | `addTimeoutMs` | `15000` | memory_add 脚本执行超时（毫秒） |
 | `syncTimeoutMs` | `120000` | memory_sync 脚本执行超时（毫秒） |

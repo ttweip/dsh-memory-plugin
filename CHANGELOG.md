@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.4.0（2026-09-05，合并原 v1.3 检索增强 + v1.4 续接体验）
+
+### 检索增强（配套记忆库 scripts/memory_search.sh + synonyms.tsv）
+- **同义词表** `scripts/synonyms.tsv`：检索时自动扩展关键词（warranty→维保、防火墙→USG、卡住→卡死…），输出标注扩展来源
+- **工具脚本命中降级**：scripts/*.sh|py 命中放末段「非知识，仅参考」，不再污染知识排序（查「PAT 获取」不再 Top1=audit_secrets.sh）
+- **归一化排序 + 文件名加权**：命中行数/条目数（下限 4），大文件不霸榜、小文件不虚高；文件名含关键词 +100 分
+- **冷热归档**：主题文件头部 `状态：Archived` 即归档，默认排除、`--all` 显示，并在默认输出提示「N 个归档主题有命中」
+- 修复空 stats 导致 mapfile 空条目 bug
+- 回归评测 8 场景：原 4 个失败案例（PAT/warranty/防火墙/卡住）全部修正，候选集均含正确主题
+
+### checkpoint 摘要注入（按 PROTOCOL §7 护栏）
+- 新配置 `injectRecentCheckpoint`（默认 **false**）：开启后引导提示附带最近一份 checkpoint 的摘要
+- 护栏：只取 Active intent / Next action 两节、硬上限 200 字截断、不注入 Current work 等详情
+- 提取逻辑抽为导出纯函数 extractCheckpointSummary，单测覆盖（8/8 全绿）
+
+### 协议配套（记忆库 PROTOCOL §7）
+- 上下文注入护栏写入协议：登记制、默认不注入、正文零注入
+
 ## v1.2.0（2026-09-02）
 
 ### 写入口规范化：memory_add（配套记忆库 deploy/dsh-memory 的 scripts/memory_add.py）

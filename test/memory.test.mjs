@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resolveMemoryDir, parseKeywords } from '../index.mjs'
+import { resolveMemoryDir, parseKeywords, extractCheckpointSummary } from '../index.mjs'
 
 /** 造一个含 MEMORY.md 的记忆库目录 */
 function makeRepo(root, name) {
@@ -74,4 +74,38 @@ test('resolveMemoryDir：无命中时走兜底', () => {
     mkdirSync(empty, { recursive: true })
     assert.equal(resolveMemoryDir(empty), resolveMemoryDir()) // 与默认兜底一致
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('extractCheckpointSummary：只取 Active intent / Next action 两节', () => {
+  const cp = `# Session checkpoint 2026-09-02
+## Active intent
+修复 dsh-memory 检索排序
+## Next action
+发布 v1.4.0 双端
+## Current work
+一大堆不该注入的详情……
+## Errors and fixes
+踩坑记录`
+  const s = extractCheckpointSummary(cp)
+  assert.ok(s.includes('Active intent: 修复 dsh-memory 检索排序'))
+  assert.ok(s.includes('Next action: 发布 v1.4.0 双端'))
+  assert.ok(!s.includes('Current work'))
+  assert.ok(!s.includes('一大堆不该注入的详情'))
+})
+
+test('extractCheckpointSummary：200 字硬上限截断', () => {
+  const long = `# c
+## Active intent
+${'长'.repeat(300)}
+## Next action
+x`
+  const s = extractCheckpointSummary(long)
+  assert.ok(s.length <= 203) // 200 + 省略号
+  assert.ok(s.endsWith('…'))
+})
+
+test('extractCheckpointSummary：缺节/空文本返回空串', () => {
+  assert.equal(extractCheckpointSummary('# c\n## Other\nx'), '')
+  assert.equal(extractCheckpointSummary(''), '')
+  assert.equal(extractCheckpointSummary(undefined), '')
 })
