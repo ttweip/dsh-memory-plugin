@@ -20,6 +20,7 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 | 静默原则（v1.0.3） | 提示中声明：记忆操作（检索/落盘/备份）一律静默进行，不向用户播报；仅用户主动问起或涉及影响行为的新规则时才一句话带过 |
 | `memory_add`（v1.2.0） | **落盘推荐写入口**：topic/title/body → 条目自动进 MEMORY-<topic>.md，MEMORY.md 的 See 索引计数自动维护（真实条目数重算，可校正历史漂移）；同主题同标题自动拒绝防重复 |
 | `memory_search` | 按关键词检索记忆库（多词 OR；按文件聚合排序输出，排除 sessions/ 会话日志与 .git） |
+| `memory_suggest`（v1.6.0） | 查看最近 checkpoint 的候选区（Discovered candidates），半自动提取待确认知识（只读不写入） |
 | `memory_sync` | git commit + push 到 GitLab 备份仓库（merge 不 force-push） |
 | 容错 | 任何异常只降级为工具报错/跳过提示，绝不破坏会话 |
 
@@ -67,7 +68,8 @@ bash install.sh uninstall  # 卸载：从 patch.yml 精确摘除本插件块
 
 ## 使用
 
-- 产生可复用知识（新规则/定稿决策/已验证经验）→ `memory_add {topic, title, body}`（落盘推荐写入口，索引自动维护）
+- 产生可复用知识（新规则/定稿决策/已验证经验）→ `memory_add {topic, title, body}`（落盘推荐写入口，索引自动维护；topic 支持「域/主题」如 `dsh/dsh-memory-plugin`）
+- 会话收尾 → `memory_suggest` 查看 checkpoint 候选区，挑选确认后逐条落盘
 - 会话中需要回忆既往知识 → `memory_search keyword`
 - 落盘新知识后/会话结束 → `memory_sync "docs: ..."`（静默执行，不向用户播报）
 - 引导提示会指示模型：先读 PROTOCOL.md 与 MEMORY.md 索引；用 memory_add 索引式落盘；结束写 checkpoint；**记忆操作不向用户播报（静默原则）**
@@ -80,6 +82,7 @@ dsh-memory-plugin/
 ├── package.json
 ├── install.sh       # 安装/更新/卸载脚本（幂等）
 ├── CHANGELOG.md     # 版本变更记录
+├── scripts/         # release.sh 发布脚本 + release_checklist.md 验收清单
 ├── test/            # node:test 单测（npm test）
 └── README.md
 ```

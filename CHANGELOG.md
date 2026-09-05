@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.6.0（2026-09-05，1.5 测试地基 + 1.6 功能合并版）
+
+### 测试地基（原 v1.5 范围）
+- **selfcheck 扩至 56 用例**：memory_sync 假仓库全流程（init/首次推送空远端/flock 抢占/rebase 冲突态/非冲突失败）、audit 全模式（ghp_/细粒度/私钥/ChangeMe_/二进制）、search 补充（0 命中/checkpoint 区/MAX_FILES/LINE_WIDTH 截断）、memory_add 报错路径（空 topic/非法日期/缺小节）
+- **插件 fake ctx 单测**（17/17）：hint 注入判定（promotion/去重/resume/injectHint/记忆库缺失）、checkpoint 摘要护栏、三工具全分支
+- 修复测试暴露的真 bug：① memory_sync 空远端首次推送被 pull 失败卡死；② bash 5.2 `declare -a` 空数组在 set -u 下报未绑定（改空数组赋值）；③ 截断提示在 v1.4 重写时丢失（SE3 抓回）
+
+### 功能（原 v1.6 范围）
+- **主题分组目录**：memory_add 的 topic 支持「域/主题」（如 `dsh/dsh-memory-plugin` → `topics/dsh/MEMORY-*.md`）；MEMORY.md 索引行带路径；--resync 扫子目录
+- **memory_suggest 工具**：扫描最近 checkpoint 的 Discovered candidates 候选区，半自动提取待确认知识（只读，确认后逐条 memory_add；符合 §7 护栏不自动注入）
+- **scripts/release.sh 一键发布**（CHANGELOG 自动提取描述 → GitLab → GitHub）+ **scripts/release_checklist.md** 发布后人工验收清单
+- 引导提示更新（子目录说明 + memory_suggest + 收尾提示）；PROTOCOL v1.2
+
 ## v1.4.1（2026-09-05，独立代码审查修复版）
 
 - **H1** memory_sync：remote 剥离只处理 `user:pass@`（`ssh://user@host` 不再被误剥坏配置）；分支动态取（不硬编码 main）

@@ -181,11 +181,11 @@ export function apply(ctx, config = {}) {
 
       const text = [
         `dsh 记忆库存在：${memoryDir}（dsh-memory 插件）。`,
-        '涉及本工作区的任务，先读 PROTOCOL.md 与 MEMORY.md，需要时读对应 MEMORY-<topic>.md；',
+        '涉及本工作区的任务，先读 PROTOCOL.md 与 MEMORY.md，需要时读对应 MEMORY-<topic>.md（主题可分子目录 topics/<域>/）；',
         '可复用知识用 memory_add 索引式落盘（详情自动进 MEMORY-<topic>.md，See 索引自动维护）；',
-        '会话结束按需写 sessions/ 下 checkpoint（Active intent / Next action / Discovered candidates / Errors / Live resources）。',
+        '会话结束按需写 sessions/ 下 checkpoint（Active intent / Next action / Discovered candidates / Errors / Live resources），收尾可调 memory_suggest 查看候选条目。',
         '静默原则：记忆操作（检索/落盘/备份）一律静默进行，不向用户播报；仅当用户主动问起，或落盘的是影响后续行为的新规则时，才一句话带过。',
-        '可用工具：memory_add（落盘，推荐写入口）、memory_search（检索）、memory_sync（git 备份）。',
+        '可用工具：memory_add（落盘，推荐写入口）、memory_search（检索）、memory_suggest（查看 checkpoint 候选条目）、memory_sync（git 备份）。',
       ].join(' ')
 
       // 护栏（PROTOCOL §7）：checkpoint 摘要注入默认关闭，开启后只带两节、200 字上限
@@ -222,14 +222,14 @@ export function apply(ctx, config = {}) {
     }),
     output: textOutput(),
     async execute(args, exec) {
+      const keywords = parseKeywords(args.keyword)
+      if (keywords.length === 0) {
+        return { text: 'memory_search: 缺少关键词。用法：memory_search "关键词1 关键词2"（多词按或匹配）' }
+      }
       const memoryDir = memoryDirFor(exec?.agent?.session)
       const script = join(memoryDir, 'scripts', 'memory_search.sh')
       if (!existsSync(script)) {
         return { text: `memory_search: 脚本不存在 ${script}（记忆库未部署 scripts/，可用 config.memoryDir 或 DSH_MEMORY_DIR 指定）` }
-      }
-      const keywords = parseKeywords(args.keyword)
-      if (keywords.length === 0) {
-        return { text: 'memory_search: 缺少关键词。用法：memory_search "关键词1 关键词2"（多词按或匹配）' }
       }
       try {
         const { stdout } = await run('bash', [script, ...keywords], { timeout: config.searchTimeoutMs ?? 15000 })
@@ -253,16 +253,16 @@ export function apply(ctx, config = {}) {
     }),
     output: textOutput(),
     async execute(args, exec) {
-      const memoryDir = memoryDirFor(exec?.agent?.session)
-      const script = join(memoryDir, 'scripts', 'memory_add.py')
-      if (!existsSync(script)) {
-        return { text: `memory_add: 脚本不存在 ${script}（记忆库未部署 scripts/，可用 config.memoryDir 或 DSH_MEMORY_DIR 指定）` }
-      }
       const topic = String(args.topic ?? '').trim()
       const title = String(args.title ?? '').trim()
       const body = String(args.body ?? '').trim()
       if (!topic || !title || !body) {
         return { text: 'memory_add: topic / title / body 均不能为空。用法：memory_add {topic, title, body}' }
+      }
+      const memoryDir = memoryDirFor(exec?.agent?.session)
+      const script = join(memoryDir, 'scripts', 'memory_add.py')
+      if (!existsSync(script)) {
+        return { text: `memory_add: 脚本不存在 ${script}（记忆库未部署 scripts/，可用 config.memoryDir 或 DSH_MEMORY_DIR 指定）` }
       }
       try {
         const { stdout } = await run('python3', [script, topic, title, body], { timeout: config.addTimeoutMs ?? 15000 })
@@ -274,7 +274,34 @@ export function apply(ctx, config = {}) {
     },
   })
 
-  /* ── 4) memory_sync 工具 ────────────────────────────────────────────── */
+  /* ── 4) memory_suggest 工具（v1.6.0 候选提示，半自动提取）──────────── */
+
+  ctx.tools.register({
+    name: 'memory_suggest',
+    description: '查看最近会话 checkpoint 的 Discovered candidates 候选区，列出待确认落盘的知识条目（只读不写入；确认后逐条用 memory_add 落盘）。会话收尾时调用，避免漏记。',
+    parameters: toJsonSchema({
+      count: { type: 'number', description: '读取最近几份 checkpoint（默认 1）' },
+    }),
+    output: textOutput(),
+    async execute(args, exec) {
+      const memoryDir = memoryDirFor(exec?.agent?.session)
+      const script = join(memoryDir, 'scripts', 'memory_suggest.py')
+      if (!existsSync(script)) {
+        return { text: `memory_suggest: 脚本不存在 ${script}（记忆库未部署 scripts/）` }
+      }
+      try {
+        const argv = [script]
+        if (Number.isInteger(args.count) && args.count > 0) argv.push(String(args.count))
+        const { stdout } = await run('python3', argv, { timeout: config.addTimeoutMs ?? 15000 })
+        return { text: stdout }
+      } catch (error) {
+        const detail = error && (error.stdout || error.stderr || error.message)
+        return { text: `memory_suggest 失败：${String(detail || error).trim()}` }
+      }
+    },
+  })
+
+  /* ── 5) memory_sync 工具 ────────────────────────────────────────────── */
 
   ctx.tools.register({
     name: 'memory_sync',
