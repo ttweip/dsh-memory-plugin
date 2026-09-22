@@ -3,9 +3,10 @@
 > 每次发布新版本后，按本清单逐项验收；`[ ]` 前打勾确认。自动化测试过不代表真机行为正确。
 
 ## 发布侧（自动化已覆盖）
+- [ ] **`bash install.sh sync-runtime <记忆库路径>` 已跑**（把记忆库最新 scripts/ 与 PROTOCOL.md 拉进插件 `runtime/`，否则新环境 init 出的是旧脚本）
 - [ ] `node --check index.mjs` 通过
-- [ ] `npm test` 全绿（当前 ≥20 用例）
-- [ ] 记忆库 `bash scripts/selfcheck.sh` 全绿（当前 56 用例）
+- [ ] `npm test` 全绿（当前 ≥22 用例）
+- [ ] 记忆库 `bash scripts/selfcheck.sh` 全绿（当前 61 用例）
 - [ ] GitLab release 已建、GitHub release 已建（两端 tag 对齐）
 - [ ] 记忆库两端 commit 一致（GitLab deploy/dsh-memory == GitHub ttweip/dsh-memory）
 
@@ -19,6 +20,7 @@
 ## 安装链路
 - [ ] `bash install.sh update` 实测（拉最新 tag 覆盖本地 + 配置幂等）
 - [ ] `bash install.sh uninstall` + `install.sh all` 恢复（假 HOME 测试过，真机按需）
+- [ ] **`bash install.sh init <临时目录>` 实测**（脚手架产物齐全、git 与钩子在位、二次运行拒绝覆盖）
 
 ## 安全
 - [ ] `bash scripts/audit_secrets.sh --test` 自测通过

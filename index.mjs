@@ -11,9 +11,14 @@
  *  3. memory_add（v1.2.0）：索引式落盘推荐写入口——条目进 MEMORY-<topic>.md，
  *     MEMORY.md 的 See 索引计数自动维护（调 scripts/memory_add.py）。
  *  4. memory_sync：git 提交并推送备份（merge 不 force-push，调 memory_sync.sh）。
+ *  5. memory_init（v1.6.2）：新环境初始化记忆库（install.sh init）——无库时建空库
+ *     （MEMORY.md/PROTOCOL.md/scripts/sessions + git init + 防泄漏钩子），
+ *     或 --from <git-url> 克隆已有记忆库；已有库则不覆盖。
+ *     库里没有 scripts/ 时，工具报错会指向本工具（此前只能人工 cd 折腾）。
  *
- * 配置项（config）：memoryDir / injectHint / searchTimeoutMs（默认 15000）/
- *     addTimeoutMs（默认 15000）/ syncTimeoutMs（默认 120000）
+ * 配置项（config）：memoryDir / injectHint（默认 true）/ initHint（默认 true，
+ *     无记忆库时提示如何初始化）/ searchTimeoutMs（默认 15000）/
+ *     addTimeoutMs（默认 15000）/ syncTimeoutMs（默认 120000）/ initTimeoutMs（默认 60000）
  *
  * 记忆库定位（v1.2 隐藏目录规范）：
  *     config.memoryDir > 环境变量 DSH_MEMORY_DIR > 从会话 cwd 向上查找
@@ -27,8 +32,15 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const run = promisify(execFile)
+
+/** 插件自身目录（install.sh / runtime/ 与 index.mjs 同级）。 */
+const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url))
+
+/** 记忆库/插件缺件时的统一指引。 */
+const MISSING_SCRIPTS_HINT = '（记忆库未部署 scripts/：可用 memory_init 初始化，或用 config.memoryDir / DSH_MEMORY_DIR 指向已有库）'
 
 /** Cordis 插件名（loader 诊断用）。 */
 export const name = 'dsh-memory'
@@ -170,14 +182,29 @@ export function apply(ctx, config = {}) {
       const session = agent?.session
       if (session === undefined || !hintEnabled) return decision
       if (hinted.has(session.id) || !toolUsed.has(session.id)) return decision
-      // resume 安全：历史里已有本插件提示则不重复注入
-      if (session.events.some((ev) => ev.type === 'user/message' && ev.data?.source?.kind === 'dsh-memory-hint')) {
+      // resume 安全：历史里已有本插件提示（存在性或初始化提示）则不重复注入
+      if (session.events.some((ev) => ev.type === 'user/message'
+        && (ev.data?.source?.kind === 'dsh-memory-hint' || ev.data?.source?.kind === 'dsh-memory-init-hint'))) {
         hinted.add(session.id)
         return decision
       }
       hinted.add(session.id)
       const memoryDir = memoryDirFor(session)
-      if (!existsSync(join(memoryDir, 'MEMORY.md'))) return decision
+      if (!existsSync(join(memoryDir, 'MEMORY.md'))) {
+        // v1.6.2：新环境没有记忆库时不再静默跳过——提示如何初始化（config.initHint=false 可关）
+        if (config.initHint === false) return decision
+        return {
+          ...decision,
+          messages: [...decision.messages, {
+            id: `dsh-memory-init-hint-${session.id}`,
+            role: 'user',
+            content: [{ type: 'text', text: `本工作区还没有 dsh 记忆库（预期位置 ${memoryDir}）。`
+              + `如需跨会话记忆，用 memory_init 工具初始化（等价于 bash ${join(PLUGIN_DIR, 'install.sh')} init <工作区目录>），`
+              + `或把已有记忆库放到该位置 / 用 DSH_MEMORY_DIR 指定。未初始化前 memory_* 工具不可用。` }],
+            source: { kind: 'dsh-memory-init-hint', form: 'hint' },
+          }],
+        }
+      }
 
       const text = [
         `dsh 记忆库存在：${memoryDir}（dsh-memory 插件）。`,
@@ -230,7 +257,7 @@ export function apply(ctx, config = {}) {
       const memoryDir = memoryDirFor(exec?.agent?.session)
       const script = join(memoryDir, 'scripts', 'memory_search.sh')
       if (!existsSync(script)) {
-        return { text: `memory_search: 脚本不存在 ${script}（记忆库未部署 scripts/，可用 config.memoryDir 或 DSH_MEMORY_DIR 指定）` }
+        return { text: `memory_search: 脚本不存在 ${script}${MISSING_SCRIPTS_HINT}` }
       }
       try {
         // v1.6.1：all=true → 透传 --all（脚本要求选项在关键词之前）；修「归档主题经工具检索不到」
@@ -265,7 +292,7 @@ export function apply(ctx, config = {}) {
       const memoryDir = memoryDirFor(exec?.agent?.session)
       const script = join(memoryDir, 'scripts', 'memory_add.py')
       if (!existsSync(script)) {
-        return { text: `memory_add: 脚本不存在 ${script}（记忆库未部署 scripts/，可用 config.memoryDir 或 DSH_MEMORY_DIR 指定）` }
+        return { text: `memory_add: 脚本不存在 ${script}${MISSING_SCRIPTS_HINT}` }
       }
       try {
         const { stdout } = await run('python3', [script, topic, title, body], { timeout: config.addTimeoutMs ?? 15000 })
@@ -290,7 +317,7 @@ export function apply(ctx, config = {}) {
       const memoryDir = memoryDirFor(exec?.agent?.session)
       const script = join(memoryDir, 'scripts', 'memory_suggest.py')
       if (!existsSync(script)) {
-        return { text: `memory_suggest: 脚本不存在 ${script}（记忆库未部署 scripts/）` }
+        return { text: `memory_suggest: 脚本不存在 ${script}${MISSING_SCRIPTS_HINT}` }
       }
       try {
         const argv = [script]
@@ -317,7 +344,7 @@ export function apply(ctx, config = {}) {
       const memoryDir = memoryDirFor(exec?.agent?.session)
       const script = join(memoryDir, 'scripts', 'memory_sync.sh')
       if (!existsSync(script)) {
-        return { text: `memory_sync: 脚本不存在 ${script}（记忆库未部署 scripts/）` }
+        return { text: `memory_sync: 脚本不存在 ${script}${MISSING_SCRIPTS_HINT}` }
       }
       try {
         const { stdout } = await run('bash', [script, args.message ?? ''], { timeout: config.syncTimeoutMs ?? 120000 })
@@ -325,6 +352,36 @@ export function apply(ctx, config = {}) {
       } catch (error) {
         const detail = error && (error.stdout || error.stderr || error.message)
         return { text: `memory_sync 失败：${String(detail || error).trim()}` }
+      }
+    },
+  })
+
+  /* ── 6) memory_init 工具（v1.6.2，新环境初始化）──────────────────────── */
+
+  ctx.tools.register({
+    name: 'memory_init',
+    description: '为当前工作区初始化 dsh 记忆库（.dsh-memory/）：建 MEMORY.md 骨架（按域分小节）/PROTOCOL.md/scripts/sessions + git init + 防泄漏钩子；已存在记忆库时不覆盖。用于"新环境里 memory_* 工具报脚本不存在"的场景。',
+    parameters: toJsonSchema({
+      dir: { type: 'string', description: '工作区目录（默认会话 cwd；不存在会自动创建）' },
+      from: { type: 'string', description: '从已有记忆库 git 仓库克隆（含数据与脚本），而非建空库' },
+      remote: { type: 'string', description: '初始化后设置 git remote origin（备份地址）' },
+    }),
+    output: textOutput(),
+    async execute(args, exec) {
+      const installSh = join(PLUGIN_DIR, 'install.sh')
+      if (!existsSync(installSh)) {
+        return { text: `memory_init: 找不到 ${installSh}（插件目录不完整，无法初始化）` }
+      }
+      const dir = String(args.dir ?? '').trim() || exec?.agent?.session?.header?.cwd || process.cwd()
+      const argv = [installSh, 'init', dir]
+      if (args.from) argv.push('--from', String(args.from))
+      if (args.remote) argv.push('--remote', String(args.remote))
+      try {
+        const { stdout, stderr } = await run('bash', argv, { timeout: config.initTimeoutMs ?? 60000 })
+        return { text: `${stdout}${stderr ? `\n${stderr}` : ''}`.trim() || 'memory_init 完成。' }
+      } catch (error) {
+        const detail = error && (error.stdout || error.stderr || error.message)
+        return { text: `memory_init 失败：${String(detail || error).trim()}` }
       }
     },
   })

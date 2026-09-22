@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# dsh-memory-plugin 本地安装/更新/卸载
+# dsh-memory-plugin 本地安装/更新/卸载/初始化
 # 用法:
-#   install.sh [web|dsh-tui|all]               # 安装（默认 all；幂等）
+#   install.sh [web|dsh-tui|all]               # 安装插件（默认 all；幂等）
 #   install.sh update [web|dsh-tui|all]        # 更新：拉远端最新 tag 覆盖插件目录，再重装配置
 #   install.sh uninstall [web|dsh-tui|all]     # 卸载：从 cordis.patch.yml 摘除本插件块
+#   install.sh init [目录] [选项]               # ★ 新环境初始化记忆库（.dsh-memory/）
+#         --from <git-url>   从已有记忆库仓库克隆（含数据与脚本），而非建空库
+#         --remote <git-url> 设置 git remote origin（备份用）
+#         --no-git           不执行 git init（也不装 pre-commit 防泄漏钩子）
+#         --force            目标已有记忆库时也继续（覆盖脚本/模板，不动已有主题文件）
+#   install.sh sync-runtime [记忆库路径]        # 把记忆库 scripts/ 同步进插件 runtime/（发版前用）
 #
 # 记忆库定位（v1.1）：默认不写 memoryDir（插件从会话 cwd 动态向上发现 .dsh-memory/），
 # 仅当设置 DSH_MEMORY_DIR 环境变量时才显式写入配置。
@@ -12,6 +18,7 @@
 set -euo pipefail
 
 PLUGIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+RUNTIME_DIR="$PLUGIN_DIR/runtime"
 REMOTE_PRIMARY="http://192.168.0.145/deploy/dsh-memory-plugin.git"
 REMOTE_FALLBACK="https://github.com/ttweip/dsh-memory-plugin.git"
 MARKER='# ── dsh-memory 记忆插件'
@@ -20,15 +27,18 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 action=install
 case "${1:-all}" in
   update|uninstall) action="$1"; shift || true ;;
+  init|sync-runtime) action="$1"; shift || true ;;
 esac
 
 targets=()
-case "${1:-all}" in
-  all)     targets=(web dsh-tui) ;;
-  web)     targets=(web) ;;
-  dsh-tui) targets=(dsh-tui) ;;
-  *) echo "用法: $0 [update|uninstall] [web|dsh-tui|all]" >&2; exit 1 ;;
-esac
+if [ "$action" = install ] || [ "$action" = update ] || [ "$action" = uninstall ]; then
+  case "${1:-all}" in
+    all)     targets=(web dsh-tui) ;;
+    web)     targets=(web) ;;
+    dsh-tui) targets=(dsh-tui) ;;
+    *) echo "用法: $0 [update|uninstall|init|sync-runtime] [web|dsh-tui|all]" >&2; exit 1 ;;
+  esac
+fi
 
 patch_for() { echo "$HOME/.dsh/profiles/$1/cordis.patch.yml"; }
 
@@ -94,6 +104,11 @@ update_files() {
     rm -rf "$PLUGIN_DIR/test"
     cp -r "$tmp/src/test" "$PLUGIN_DIR/"
   fi
+  if [ -d "$tmp/src/runtime" ]; then
+    rm -rf "$PLUGIN_DIR/runtime"
+    cp -r "$tmp/src/runtime" "$PLUGIN_DIR/"
+    chmod +x "$PLUGIN_DIR"/runtime/*.sh "$PLUGIN_DIR"/runtime/*.py 2>/dev/null || true
+  fi
   echo "已更新插件文件到 $tag"
 }
 
@@ -158,6 +173,107 @@ print('已卸载：' + path)
 PYEOF
 }
 
+init_usage() {
+  cat >&2 <<EOF
+用法: $0 init [目录] [选项]
+  在 <目录>（默认当前目录）下创建记忆库 .dsh-memory/
+选项:
+  --from <git-url>    从已有记忆库仓库克隆（含数据与脚本），而非创建空库
+  --remote <git-url>  初始化后设置 git remote origin（备份用）
+  --no-git            不执行 git init（也不装 pre-commit 防泄漏钩子）
+  --force             目标已有记忆库时也继续（覆盖脚本/模板，不动已有主题文件）
+EOF
+}
+
+init_library() {
+  local dir="$PWD" from="" remote="" do_git=1 force=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --from)   from="${2:-}";   shift 2 ;;
+      --remote) remote="${2:-}"; shift 2 ;;
+      --no-git) do_git=0; shift ;;
+      --force)  force=1; shift ;;
+      -h|--help) init_usage; return 0 ;;
+      -*) echo "未知选项：$1" >&2; init_usage; return 1 ;;
+      *)  dir="$1"; shift ;;
+    esac
+  done
+  if [ ! -d "$dir" ]; then
+    mkdir -p "$dir" || { echo "❌ 无法创建目录：$dir" >&2; return 1; }
+    echo "已创建工作区目录：$dir"
+  fi
+  dir="$(cd "$dir" && pwd)"
+  local lib="$dir/.dsh-memory"
+
+  if [ -f "$lib/MEMORY.md" ] && [ "$force" -ne 1 ]; then
+    echo "已存在记忆库：$lib（如需重建请加 --force）"
+    return 0
+  fi
+
+  if [ -n "$from" ]; then
+    if [ -d "$lib/.git" ]; then
+      echo "已存在仓库，跳过克隆：$lib"
+    else
+      echo "从 $from 克隆记忆库 → $lib"
+      GIT_TERMINAL_PROMPT=0 git clone -q --depth 1 "$from" "$lib" \
+        || { echo "❌ 克隆失败：$from" >&2; return 1; }
+    fi
+  else
+    echo "创建空记忆库 → $lib"
+    mkdir -p "$lib/sessions" "$lib/scripts" "$lib/topics"
+    cp "$RUNTIME_DIR"/memory_search.sh "$RUNTIME_DIR"/memory_sync.sh \
+       "$RUNTIME_DIR"/audit_secrets.sh "$RUNTIME_DIR"/selfcheck.sh \
+       "$RUNTIME_DIR"/memory_add.py "$RUNTIME_DIR"/memory_suggest.py \
+       "$RUNTIME_DIR"/synonyms.tsv "$lib/scripts/"
+    chmod +x "$lib/scripts"/*.sh "$lib/scripts"/*.py
+    [ -f "$lib/PROTOCOL.md" ] || cp "$RUNTIME_DIR/PROTOCOL.md" "$lib/PROTOCOL.md"
+    [ -f "$lib/MEMORY.md" ]   || cp "$RUNTIME_DIR/MEMORY.md.template" "$lib/MEMORY.md"
+    [ -f "$lib/.gitignore" ]  || printf 'sessions/\n*.tmp\n.DS_Store\n' > "$lib/.gitignore"
+  fi
+
+  if [ "$do_git" -eq 1 ]; then
+    if [ ! -d "$lib/.git" ]; then
+      git -C "$lib" init -q
+      git -C "$lib" add -A
+      git -C "$lib" -c user.name="dsh-memory" -c user.email="memory@dsh.local" \
+        commit -q -m "chore: 初始化 dsh 记忆库（install.sh init）" || true
+    fi
+    if [ -n "$remote" ]; then
+      git -C "$lib" remote remove origin >/dev/null 2>&1 || true
+      git -C "$lib" remote add origin "$remote"
+      echo "  ✓ remote origin = $remote"
+    fi
+    if [ -x "$lib/scripts/audit_secrets.sh" ]; then
+      if ( cd "$lib" && bash scripts/audit_secrets.sh --install >/dev/null 2>&1 ); then
+        echo "  ✓ pre-commit 防泄漏钩子已安装"
+      else
+        echo "  ⚠ 钩子安装失败（可手动：cd $lib && bash scripts/audit_secrets.sh --install）"
+      fi
+    fi
+  fi
+
+  echo "✅ 记忆库就绪：$lib"
+  echo "  下一步："
+  echo "    · 会话里立即可用（插件按 cwd 向上发现 .dsh-memory/；已运行中的 dsh 进程需重启才加载插件）"
+  echo "    · 自检：bash $lib/scripts/selfcheck.sh"
+  [ -n "$remote" ] || echo "    · 备份：git -C $lib remote add origin <url> 后跑 bash $lib/scripts/memory_sync.sh"
+}
+
+sync_runtime() {
+  local src="${1:-${DSH_MEMORY_DIR:-$PWD/.dsh-memory}}"
+  [ -d "$src" ] || { echo "❌ 记忆库目录不存在：$src" >&2; return 1; }
+  src="$(cd "$src" && pwd)"
+  local sdir="$src/scripts"
+  [ -f "$sdir/memory_search.sh" ] || { echo "❌ 不是记忆库（缺 scripts/memory_search.sh）：$src" >&2; return 1; }
+  mkdir -p "$RUNTIME_DIR"
+  cp "$sdir"/memory_search.sh "$sdir"/memory_sync.sh "$sdir"/audit_secrets.sh "$sdir"/selfcheck.sh \
+     "$sdir"/memory_add.py "$sdir"/memory_suggest.py "$sdir"/synonyms.tsv "$RUNTIME_DIR/"
+  [ -f "$src/PROTOCOL.md" ] && cp "$src/PROTOCOL.md" "$RUNTIME_DIR/PROTOCOL.md"
+  chmod +x "$RUNTIME_DIR"/*.sh "$RUNTIME_DIR"/*.py
+  echo "✅ runtime/ 已同步（源：$src，$(ls -1 "$RUNTIME_DIR" | wc -l) 个文件）"
+  echo "   注意：MEMORY.md.template 不随同步改动（手工维护）"
+}
+
 case "$action" in
   install)
     for p in "${targets[@]}"; do install_to "$p"; done
@@ -171,5 +287,11 @@ case "$action" in
   uninstall)
     for p in "${targets[@]}"; do uninstall_from "$p"; done
     echo "卸载完成（重启 dsh 后插件不再加载）"
+    ;;
+  init)
+    init_library "$@"
+    ;;
+  sync-runtime)
+    sync_runtime "$@"
     ;;
 esac

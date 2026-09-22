@@ -1,0 +1,31 @@
+# Project memory — <工作区名> 工作区记忆
+_索引式：详情在 `topics/<域>/MEMORY-<主题>.md`，本文件只留一行 See 索引（由 install.sh init 建库，协议见 PROTOCOL.md）。_
+
+## Project context
+- dsh 工作区 = `<工作区绝对路径>`（一句话说明用途）；本库是该工作区的持久记忆介质，协议与检索脚本见 PROTOCOL.md / scripts/
+
+## Rules
+- 用户使用中文交流，dsh 回复使用中文
+- 记忆落盘用索引式：详情进 `topics/<域>/MEMORY-<主题>.md`，MEMORY.md 只加一行 See 索引
+- 记忆备份 merge 不 force-push（会删他人提交）；commit 身份 dsh-memory/memory@dsh.local
+- token/密码/私钥明文不入记忆（只记获取渠道）
+
+## Architecture decisions
+(none)
+
+## Discovered durable knowledge
+> 按域分组：`dsh`=dsh 自身机制 / `idc-ops`=机房网络运维 / `projects`=外部项目交付 / `knowledge`=通用技术知识（域可按需调整，改 PROTOCOL.md §0 与本文件小节名即可）。
+
+### dsh — dsh 自身机制（`topics/dsh/`）
+
+### idc-ops — 机房网络运维（`topics/idc-ops/`）
+
+### projects — 外部项目交付（`topics/projects/`）
+
+### knowledge — 通用技术知识（`topics/knowledge/`）
+
+### Discovered
+(none)
+
+### Dead ends
+(none)

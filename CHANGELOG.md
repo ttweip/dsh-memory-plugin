@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.6.2（2026-09-22，新环境初始化）
+
+### 新增
+- **`install.sh init`（新环境一条命令建库）**：`init [目录] [--from <git-url>] [--remote <git-url>] [--no-git] [--force]`
+  - 空库脚手架：`MEMORY.md`（四域骨架）+ `PROTOCOL.md` + `scripts/`（7 个脚本）+ `sessions/` + `topics/` + `.gitignore`
+  - `git init` + 初始 commit；从库内 `scripts/audit_secrets.sh --install` 装 pre-commit 防泄漏钩子；可选设置 `remote origin`
+  - `--from` 走克隆路径（含数据与脚本），克隆后同样补装钩子；已存在记忆库默认拒绝覆盖（`--force` 才继续）
+- **`memory_init` 工具**：会话内直接初始化（薄封装 `install.sh init`，参数 `dir` / `from` / `remote`）；用于"新环境里 memory_* 工具报脚本不存在"的场景
+- **缺库提示**：工作区没有 `.dsh-memory/MEMORY.md` 时不再静默跳过，改为注入一条"如何初始化"提示（`config.initHint=false` 可关；与存在性提示共用每会话一次的去重）
+- **插件自带 `runtime/`**：记忆库脚本 + `PROTOCOL.md` + `MEMORY.md.template` 随包，`init` 落地用；`install.sh sync-runtime [记忆库路径]` 从记忆库刷新（`update` 会一并覆盖 `runtime/`）
+
+### 变更
+- 四个工具脚本缺失时的报错统一追加指引：可用 `memory_init` 初始化，或用 `config.memoryDir` / `DSH_MEMORY_DIR` 指向已有库
+
+### 测试
+- 新增 `test/install.test.mjs`（3 例）：脚手架产物 + 幂等拒绝 / `--from` 克隆 + remote + 钩子 / `--no-git` + `sync-runtime`
+- `test/plugin.test.mjs` 扩到 12 例：工具注册含 `memory_init`、init 提示三态（注入/不重复/可关）、`memory_init` 端到端脚手架 + 幂等
+- `npm test` 22/22 通过（v1.6.1 时为 17）
+
 ## v1.6.1（2026-09-22，按域分组配套）
 
 ### 记忆体系（协议 v1.3）

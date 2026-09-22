@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { apply } from '../index.mjs'
@@ -42,10 +42,10 @@ function emitToolCall(ctx, session) {
   ctx._handlers['session/event'](session, { type: 'tool/call' })
 }
 
-test('工具注册：memory_search / memory_add / memory_suggest / memory_sync 齐全', () => {
+test('工具注册：memory_search / memory_add / memory_suggest / memory_sync / memory_init 齐全', () => {
   const ctx = fakeCtx()
   apply(ctx, {})
-  for (const name of ['memory_search', 'memory_add', 'memory_suggest', 'memory_sync']) {
+  for (const name of ['memory_search', 'memory_add', 'memory_suggest', 'memory_sync', 'memory_init']) {
     assert.ok(ctx._tools[name], `缺工具 ${name}`)
   }
 })
@@ -85,26 +85,69 @@ test('hint：resume 历史已有插件提示则不重复', async () => {
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-test('hint：injectHint=false 关闭注入；记忆库缺失跳过', async () => {
+test('hint：injectHint=false 关闭注入', async () => {
   const { root } = makeMem()
   try {
     const ctx = fakeCtx()
     apply(ctx, { injectHint: false })
     const session = fakeSession(root)
     emitToolCall(ctx, session)
-    let d = await runPreStep(ctx, session)
+    const d = await runPreStep(ctx, session)
+    assert.equal(d.messages.length, 0)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('v1.6.2 init hint：无记忆库时提示初始化；可关；历史已有则不重复', async () => {
+  const empty = mkdtempSync(join(tmpdir(), 'dsh-empty-'))
+  const missing = join(empty, '.dsh-memory')
+  try {
+    // 无库 → 注入初始化提示
+    const ctx = fakeCtx()
+    apply(ctx, { memoryDir: missing })
+    const s = fakeSession(empty)
+    emitToolCall(ctx, s)
+    let d = await runPreStep(ctx, s)
+    assert.equal(d.messages.length, 1)
+    assert.ok(d.messages[0].content[0].text.includes('还没有 dsh 记忆库'))
+    assert.equal(d.messages[0].source.kind, 'dsh-memory-init-hint')
+    // 同会话不重复
+    d = await runPreStep(ctx, s)
     assert.equal(d.messages.length, 0)
 
-    // 记忆库缺失（cwd 无 .dsh-memory 且 config.memoryDir 指向空目录）
-    const empty = mkdtempSync(join(tmpdir(), 'dsh-empty-'))
+    // resume 历史里已有初始化提示 → 不重复
     const ctx2 = fakeCtx()
-    apply(ctx2, { memoryDir: empty })
-    const s2 = fakeSession(empty)
+    apply(ctx2, { memoryDir: missing })
+    const s2 = fakeSession(empty, [{ type: 'user/message', data: { source: { kind: 'dsh-memory-init-hint' } } }])
     emitToolCall(ctx2, s2)
     d = await runPreStep(ctx2, s2)
     assert.equal(d.messages.length, 0)
-    rmSync(empty, { recursive: true, force: true })
-  } finally { rmSync(root, { recursive: true, force: true }) }
+
+    // initHint=false → 完全不注入
+    const ctx3 = fakeCtx()
+    apply(ctx3, { memoryDir: missing, initHint: false })
+    const s3 = fakeSession(empty)
+    emitToolCall(ctx3, s3)
+    d = await runPreStep(ctx3, s3)
+    assert.equal(d.messages.length, 0)
+  } finally { rmSync(empty, { recursive: true, force: true }) }
+})
+
+test('v1.6.2 memory_init：脚手架出可用记忆库（含 git 与 pre-commit 钩子），且幂等', async () => {
+  const ws = mkdtempSync(join(tmpdir(), 'dsh-init-ws-'))
+  try {
+    const ctx = fakeCtx()
+    apply(ctx, {})
+    const exec = { agent: { session: fakeSession(ws) } }
+    const r = await ctx._tools.memory_init.execute({ dir: ws }, exec)
+    assert.ok(r.text.includes('记忆库就绪'), r.text)
+    const mem = join(ws, '.dsh-memory')
+    for (const f of ['MEMORY.md', 'PROTOCOL.md', '.gitignore', '.git/hooks/pre-commit',
+      'scripts/memory_add.py', 'scripts/memory_search.sh', 'scripts/selfcheck.sh']) {
+      assert.ok(existsSync(join(mem, f)), `缺 ${f}`)
+    }
+    const r2 = await ctx._tools.memory_init.execute({ dir: ws }, exec)
+    assert.ok(r2.text.includes('已存在记忆库'), r2.text)
+  } finally { rmSync(ws, { recursive: true, force: true }) }
 })
 
 test('checkpoint 注入：默认不含摘要；开启且存在 checkpoint 时按护栏注入', async () => {
