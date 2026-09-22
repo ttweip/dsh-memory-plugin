@@ -18,15 +18,15 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 |---|---|
 | 会话引导提示 | 每会话一次（promotion 后），只提示"记忆库存在 + 协议要点"，不注入内容（同 instruction-hint 模式，省 token） |
 | 静默原则（v1.0.3） | 提示中声明：记忆操作（检索/落盘/备份）一律静默进行，不向用户播报；仅用户主动问起或涉及影响行为的新规则时才一句话带过 |
-| `memory_add`（v1.2.0） | **落盘推荐写入口**：topic/title/body → 条目自动进 MEMORY-<topic>.md，MEMORY.md 的 See 索引计数自动维护（真实条目数重算，可校正历史漂移）；同主题同标题自动拒绝防重复 |
-| `memory_search` | 按关键词检索记忆库（多词 OR；按文件聚合排序输出，排除 sessions/ 会话日志与 .git） |
+| `memory_add`（v1.2.0，v1.6.1 起带域） | **落盘推荐写入口**：topic 必须带域（`<域>/<主题>` → `topics/<域>/MEMORY-<主题>.md`，域固定 dsh / idc-ops / projects / knowledge），MEMORY.md 的 See 行自动插进对应域小节、计数自动维护（真实条目数重算，可校正历史漂移）；同主题同标题自动拒绝防重复 |
+| `memory_search`（v1.6.1 起支持 `all`） | 按关键词检索记忆库（多词 OR；按文件聚合排序输出，排除 sessions/ 会话日志与 .git）；归档主题默认隐藏，`all: true` 透传 `--all` 展开明细 |
 | `memory_suggest`（v1.6.0） | 查看最近 checkpoint 的候选区（Discovered candidates），半自动提取待确认知识（只读不写入） |
 | `memory_sync` | git commit + push 到 GitLab 备份仓库（merge 不 force-push） |
 | 容错 | 任何异常只降级为工具报错/跳过提示，绝不破坏会话 |
 
 ## 依赖
 
-- **记忆数据仓库** `dsh-memory`（默认位于工作区根目录下的 `.dsh-memory/`）：含 PROTOCOL.md、MEMORY.md、MEMORY-<topic>.md、sessions/、scripts/memory_search.sh、scripts/memory_add.py、scripts/memory_sync.sh、scripts/audit_secrets.sh
+- **记忆数据仓库** `dsh-memory`（默认位于工作区根目录下的 `.dsh-memory/`）：含 PROTOCOL.md、MEMORY.md、`topics/<域>/MEMORY-<主题>.md`、sessions/、scripts/memory_search.sh、scripts/memory_add.py、scripts/memory_sync.sh、scripts/audit_secrets.sh（域分组与协议 v1.3 起）
 - **路径不固化（v1.1）**：记忆库定位优先级 = `config.memoryDir` > 环境变量 `DSH_MEMORY_DIR` > **从会话 cwd 向上动态发现 `.dsh-memory/`**（含 MEMORY.md 即命中）> 兜底 `/mnt/smb/.dsh-memory`。记忆库可整体搬迁（内部脚本均相对定位）
 
 ## 安装（本地 profile）

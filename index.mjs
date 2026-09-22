@@ -181,8 +181,8 @@ export function apply(ctx, config = {}) {
 
       const text = [
         `dsh 记忆库存在：${memoryDir}（dsh-memory 插件）。`,
-        '涉及本工作区的任务，先读 PROTOCOL.md 与 MEMORY.md，需要时读对应 MEMORY-<topic>.md（主题可分子目录 topics/<域>/）；',
-        '可复用知识用 memory_add 索引式落盘（详情自动进 MEMORY-<topic>.md，See 索引自动维护）；',
+        '涉及本工作区的任务，先读 PROTOCOL.md 与 MEMORY.md（索引按域分小节），需要时读对应 topics/<域>/MEMORY-<主题>.md；',
+        '可复用知识用 memory_add 落盘，topic 必须带域：dsh（dsh 自身机制）/ idc-ops（机房网络运维）/ projects（外部项目交付）/ knowledge（通用技术知识）；See 索引与计数自动维护；',
         '会话结束按需写 sessions/ 下 checkpoint（Active intent / Next action / Discovered candidates / Errors / Live resources），收尾可调 memory_suggest 查看候选条目。',
         '静默原则：记忆操作（检索/落盘/备份）一律静默进行，不向用户播报；仅当用户主动问起，或落盘的是影响后续行为的新规则时，才一句话带过。',
         '可用工具：memory_add（落盘，推荐写入口）、memory_search（检索）、memory_suggest（查看 checkpoint 候选条目）、memory_sync（git 备份）。',
@@ -216,9 +216,10 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register({
     name: 'memory_search',
-    description: '在 dsh 记忆库中按关键词检索已落盘知识（排除会话日志）。需要确认既往结论、规则、环境事实时先调用；结果含文件路径，可再读原文。',
+    description: '在 dsh 记忆库中按关键词检索已落盘知识（排除会话日志）。需要确认既往结论、规则、环境事实时先调用；结果含文件路径，可再读原文。归档主题（已了结故障/历史结论）默认隐藏，需要时置 all=true。',
     parameters: toJsonSchema({
       keyword: { type: 'string', required: true, description: '搜索关键词（多个词用空格分隔，按或匹配）' },
+      all: { type: 'boolean', description: '是否包含归档主题（默认 false；查已了结故障、历史结论时打开）' },
     }),
     output: textOutput(),
     async execute(args, exec) {
@@ -232,7 +233,9 @@ export function apply(ctx, config = {}) {
         return { text: `memory_search: 脚本不存在 ${script}（记忆库未部署 scripts/，可用 config.memoryDir 或 DSH_MEMORY_DIR 指定）` }
       }
       try {
-        const { stdout } = await run('bash', [script, ...keywords], { timeout: config.searchTimeoutMs ?? 15000 })
+        // v1.6.1：all=true → 透传 --all（脚本要求选项在关键词之前）；修「归档主题经工具检索不到」
+        const extra = args.all === true ? ['--all'] : []
+        const { stdout } = await run('bash', [script, ...extra, ...keywords], { timeout: config.searchTimeoutMs ?? 15000 })
         return { text: stdout || '无命中。' }
       } catch (error) {
         const detail = error && (error.stdout || error.stderr || error.message)
@@ -245,9 +248,9 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register({
     name: 'memory_add',
-    description: '把一条知识按索引式规范落盘到 dsh 记忆库（推荐写入口）：详情条目自动追加到 MEMORY-<topic>.md（不存在则新建），MEMORY.md 的 See 索引计数自动维护；同主题同标题会拒绝以防重复。产生可复用知识（新规则/定稿决策/已验证经验）时使用。',
+    description: '把一条知识按索引式规范落盘到 dsh 记忆库（推荐写入口）：详情条目自动追加到 topics/<域>/MEMORY-<主题>.md（不存在则新建），MEMORY.md 的 See 索引行自动插进对应域小节、计数自动维护；同主题同标题会拒绝以防重复。产生可复用知识（新规则/定稿决策/已验证经验）时使用。',
     parameters: toJsonSchema({
-      topic: { type: 'string', required: true, description: '主题名（对应 MEMORY-<topic>.md，如 dsh-memory-plugin / idc-ops-environment；不存在则自动新建）' },
+      topic: { type: 'string', required: true, description: '主题名，必须带域：<域>/<主题>（域固定 dsh / idc-ops / projects / knowledge，如 dsh/dsh-memory-plugin、idc-ops/idc-ops-environment）→ 落 topics/<域>/MEMORY-<主题>.md；不存在则自动新建' },
       title: { type: 'string', required: true, description: '条目标题（简短，日期自动附加，如 v1.2.0 交付记录）' },
       body: { type: 'string', required: true, description: '条目正文（结论/路径/溯源；token/密码/私钥明文禁止入记忆，只记获取渠道）' },
     }),
