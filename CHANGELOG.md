@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.7.2（2026-10-07，修复 runtime 未随包发布）
+
+### 修复（重要）
+- **`scripts/release.sh` 漏拷 `runtime/`，导致 v1.7.0 / v1.7.1 的 tag 里 runtime 仍是旧脚本**。
+  `runtime/` 是 `memory_init` / `install.sh init` 在新环境建库时落地的脚本副本，漏拷意味着
+  **新环境 init 出来的仍是未修复版**——macOS 上依然会静默失效，v1.7.0 的可移植性修复实际没有随包发出。
+  - release.sh 增加 `runtime/` 拷贝
+  - 增加**逐文件校验**（8 个关键文件存在性 + 与插件目录 `cmp` 逐字节一致），不一致即中止发布
+  - `runtime/` 目录缺失时直接报错退出（而非静默跳过）
+
+### 验证
+- v1.7.2 tag 内 `runtime/memory_search.sh` 含环境守卫与 bash 3.2 可移植实现（对比：v1.7.0/v1.7.1 均无）
+- 记忆库 `selfcheck.sh`：61 通过 / 0 失败（C locale 与 UTF-8 均全绿）
+
 ## v1.7.1（2026-10-07，发布流程修复）
 
 ### 修复

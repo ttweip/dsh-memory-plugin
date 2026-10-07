@@ -48,6 +48,16 @@ cp "$PLUGIN_DIR"/index.mjs "$PLUGIN_DIR"/package.json "$PLUGIN_DIR"/README.md \
    "$PLUGIN_DIR"/install.sh "$PLUGIN_DIR"/CHANGELOG.md .
 [ -d "$PLUGIN_DIR/test" ] && { rm -rf test; cp -r "$PLUGIN_DIR/test" test; }
 [ -d "$PLUGIN_DIR/scripts" ] && { rm -rf scripts; cp -r "$PLUGIN_DIR/scripts" scripts; }
+# v1.7.2 修复：此前漏拷 runtime/，导致 tag 里的 runtime 一直是远端旧内容——
+# 而 runtime/ 正是 memory_init 在新环境建库用的脚本，等于新环境 init 出旧脚本。
+[ -d "$PLUGIN_DIR/runtime" ] || { echo "❌ 缺 $PLUGIN_DIR/runtime（新环境 init 将落下旧脚本）" >&2; exit 1; }
+rm -rf runtime; cp -r "$PLUGIN_DIR/runtime" runtime
+# 校验：runtime 关键脚本必须存在且与插件目录逐字节一致（防漏拷/半拷）
+for _f in memory_search.sh memory_sync.sh audit_secrets.sh selfcheck.sh memory_add.py memory_suggest.py synonyms.tsv PROTOCOL.md; do
+  [ -f "runtime/$_f" ] || { echo "❌ runtime/$_f 缺失" >&2; exit 1; }
+  cmp -s "$PLUGIN_DIR/runtime/$_f" "runtime/$_f" || { echo "❌ runtime/$_f 与插件目录不一致" >&2; exit 1; }
+done
+echo "✓ runtime/ 已拷入并校验（$(ls -1 runtime | wc -l | tr -d ' ') 个文件）"
 git add -A
 git -c user.name="dsh-memory" -c user.email="memory@dsh.local" commit -q -m "$MESSAGE"
 git push -q "http://deploy:$GL_PAT@$GL_HTTP/deploy/dsh-memory-plugin.git" main

@@ -11,6 +11,32 @@
 #   DSH_GITLAB_PAT（临时注入，仅进程内使用）
 set -euo pipefail
 
+# ── 环境守卫（可移植性）───────────────────────────────────────────────
+# 依赖：bash ≥3.2 + 常见 POSIX 工具；脚本本身已避免 bash 4+ 特性
+# （declare -A / mapfile / local -n）与 GNU 专有参数（stat -c / date -d）。
+# 设 DSH_SKIP_ENV_CHECK=1 可跳过本段检查。
+# locale 兜底：LC_CTYPE 为 C/POSIX 时，bash 3.2 会把「变量名紧跟多字节字符」
+# 误解析为变量名的一部分（多字节首字节被并入变量名 → unbound variable），
+# 故显式选用一个可用的 UTF-8 locale；找不到时至少不再假装成功。
+# 注：脚本内所有「变量紧跟多字节字符」处一律写 ${var} 花括号形式。
+if [ "${DSH_SKIP_ENV_CHECK:-0}" != "1" ]; then
+  if [ -n "${BASH_VERSINFO:-}" ] && [ "${BASH_VERSINFO[0]}" -lt 3 ]; then
+    echo "❌ 需要 bash ≥3.2，当前 ${BASH_VERSION:-未知}。macOS 自带 bash 3.2 可用；" >&2
+    echo "   若报语法错误请安装新版：brew install bash" >&2
+    exit 1
+  fi
+  case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    C|POSIX)
+      for _loc in en_US.UTF-8 zh_CN.UTF-8 C.UTF-8; do
+        if locale -a 2>/dev/null | grep -qx "$_loc"; then
+          LC_ALL="$_loc"; LC_CTYPE="$_loc"; export LC_ALL LC_CTYPE; break
+        fi
+      done
+      ;;
+  esac
+fi
+
+
 MEM_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$MEM_DIR"
 
@@ -25,7 +51,7 @@ LOCK="$MEM_DIR/.git/memory-sync.lock"
 exec 9>"$LOCK"
 if command -v flock >/dev/null 2>&1; then
   if ! flock -n 9; then
-    echo "❌ 另一 memory_sync 正在进行（$LOCK），本次退出。稍后再试。"
+    echo "❌ 另一 memory_sync 正在进行（${LOCK}），本次退出。稍后再试。"
     exit 1
   fi
 fi
@@ -70,7 +96,7 @@ if git remote | grep -q origin; then
   # 注意与「远端不可达」区分：ls-remote --heads 成功（空输出也 exit 0）且无该分支才算首次推送
   heads="$(git ls-remote --heads origin "$BRANCH" 2>/dev/null || true)"
   if git ls-remote --heads origin "$BRANCH" >/dev/null 2>&1 && [ -z "$heads" ]; then
-    echo "远端尚无 $BRANCH（首次推送），跳过 pull"
+    echo "远端尚无 ${BRANCH}（首次推送），跳过 pull"
     if [ -n "${AUTH_URL:-}" ]; then
       git -c credential.helper= -c "remote.origin.url=$AUTH_URL" push origin "$BRANCH" 2>&1
     else
@@ -97,7 +123,7 @@ if git remote | grep -q origin; then
     fi
     git push origin "$BRANCH" 2>&1
   fi
-  echo "已推送 origin/$BRANCH（rebase 不 force-push）"
+  echo "已推送 origin/${BRANCH}（rebase 不 force-push）"
 else
   echo "未配置 remote，仅本地 commit。备份仓库创建后：git remote add origin http://<gitlab-host>/deploy/dsh-memory.git（勿内嵌 token，凭据走 ~/.git-credentials 或 DSH_GITLAB_PAT）"
 fi

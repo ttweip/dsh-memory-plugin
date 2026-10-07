@@ -4,6 +4,32 @@
 # 覆盖: memory_search(H2/M1/M2/L5/L6/同义词/转义) / memory_add(M4/A8/查重/resync)
 #       audit(M3/L3) / memory_sync(H1 剥离正则) / 各脚本语法
 set -u
+
+# ── 环境守卫（可移植性）───────────────────────────────────────────────
+# 依赖：bash ≥3.2 + 常见 POSIX 工具；脚本本身已避免 bash 4+ 特性
+# （declare -A / mapfile / local -n）与 GNU 专有参数（stat -c / date -d）。
+# 设 DSH_SKIP_ENV_CHECK=1 可跳过本段检查。
+# locale 兜底：LC_CTYPE 为 C/POSIX 时，bash 3.2 会把「变量名紧跟多字节字符」
+# 误解析为变量名的一部分（多字节首字节被并入变量名 → unbound variable），
+# 故显式选用一个可用的 UTF-8 locale；找不到时至少不再假装成功。
+# 注：脚本内所有「变量紧跟多字节字符」处一律写 ${var} 花括号形式。
+if [ "${DSH_SKIP_ENV_CHECK:-0}" != "1" ]; then
+  if [ -n "${BASH_VERSINFO:-}" ] && [ "${BASH_VERSINFO[0]}" -lt 3 ]; then
+    echo "❌ 需要 bash ≥3.2，当前 ${BASH_VERSION:-未知}。macOS 自带 bash 3.2 可用；" >&2
+    echo "   若报语法错误请安装新版：brew install bash" >&2
+    exit 1
+  fi
+  case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    C|POSIX)
+      for _loc in en_US.UTF-8 zh_CN.UTF-8 C.UTF-8; do
+        if locale -a 2>/dev/null | grep -qx "$_loc"; then
+          LC_ALL="$_loc"; LC_CTYPE="$_loc"; export LC_ALL LC_CTYPE; break
+        fi
+      done
+      ;;
+  esac
+fi
+
 MEM_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$MEM_DIR"
 
@@ -109,7 +135,7 @@ else
 fi
 out=$(A 新主题 "$(printf '多\n行\n标\n题')" "内容四" 2>/dev/null)
 lines=$(grep -c '^- \*\*' "$AM/MEMORY-新主题.md")
-[ "$lines" -eq 4 ] && ok "M4: title 换行清洗为单行条目（条目数 $lines）" || bad "M4: title 换行破坏条目（条目数 $lines）"
+[ "$lines" -eq 4 ] && ok "M4: title 换行清洗为单行条目（条目数 ${lines}）" || bad "M4: title 换行破坏条目（条目数 ${lines}）"
 # L8: 并发落盘不丢（20 个并发进程不同标题；xargs 并发，避开 bash for+& 循环变量坑）
 seq 1 20 | xargs -P 20 -I{} python3 "$AM/scripts/memory_add.py" 并发 "并发条{}" "内容{}" >/dev/null 2>&1
 n=$(grep -c '^- \*\*' "$AM/MEMORY-并发.md" 2>/dev/null || echo 0)
@@ -184,11 +210,16 @@ git -C "$BAREDIR/remote.git" rev-parse main >/dev/null 2>&1 && ok "SY1: bare 仓
 before=$(git -C "$SY" rev-parse HEAD)
 SYNC "无变更" | grep -q "无变更" && ok "SY2: 无变更跳过 commit" || bad "SY2: 未跳过"
 # SY3: flock 抢占——后台持有锁，sync 应立即退出
-( exec 9>"$SY/.git/memory-sync.lock"; flock -n 9; sleep 5 ) &
-holder=$!
-sleep 0.5
-SYNC "并发抢锁" | grep -q "另一 memory_sync 正在进行" && ok "SY3: flock 互斥生效" || bad "SY3: flock 未生效"
-kill $holder 2>/dev/null; wait $holder 2>/dev/null || true
+# macOS 无 flock（memory_sync.sh 会降级为不锁），此时跳过本用例而非判失败
+if command -v flock >/dev/null 2>&1; then
+  ( exec 9>"$SY/.git/memory-sync.lock"; flock -n 9; sleep 5 ) &
+  holder=$!
+  sleep 0.5
+  SYNC "并发抢锁" | grep -q "另一 memory_sync 正在进行" && ok "SY3: flock 互斥生效" || bad "SY3: flock 未生效"
+  kill $holder 2>/dev/null; wait $holder 2>/dev/null || true
+else
+  ok "SY3: 跳过（本机无 flock，memory_sync.sh 已降级为不锁）"
+fi
 # SY4: rebase 冲突态 + pull 失败 → 提示冲突退出 1
 mkdir -p "$SY/.git/rebase-merge"
 git -C "$SY" remote set-url origin "/nonexistent/path.git"

@@ -5,6 +5,32 @@
 # checkpoint 区仅在关键词命中 sessions/ 时列出；0 命中给出换词提示。
 # 用法: memory_search.sh [--include-scripts|--all] <关键词...>   （多关键词按或匹配）
 set -u
+
+# ── 环境守卫（可移植性）───────────────────────────────────────────────
+# 依赖：bash ≥3.2 + 常见 POSIX 工具；脚本本身已避免 bash 4+ 特性
+# （declare -A / mapfile / local -n）与 GNU 专有参数（stat -c / date -d）。
+# 设 DSH_SKIP_ENV_CHECK=1 可跳过本段检查。
+# locale 兜底：LC_CTYPE 为 C/POSIX 时，bash 3.2 会把「变量名紧跟多字节字符」
+# 误解析为变量名的一部分（多字节首字节被并入变量名 → unbound variable），
+# 故显式选用一个可用的 UTF-8 locale；找不到时至少不再假装成功。
+# 注：脚本内所有「变量紧跟多字节字符」处一律写 ${var} 花括号形式。
+if [ "${DSH_SKIP_ENV_CHECK:-0}" != "1" ]; then
+  if [ -n "${BASH_VERSINFO:-}" ] && [ "${BASH_VERSINFO[0]}" -lt 3 ]; then
+    echo "❌ 需要 bash ≥3.2，当前 ${BASH_VERSION:-未知}。macOS 自带 bash 3.2 可用；" >&2
+    echo "   若报语法错误请安装新版：brew install bash" >&2
+    exit 1
+  fi
+  case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    C|POSIX)
+      for _loc in en_US.UTF-8 zh_CN.UTF-8 C.UTF-8; do
+        if locale -a 2>/dev/null | grep -qx "$_loc"; then
+          LC_ALL="$_loc"; LC_CTYPE="$_loc"; export LC_ALL LC_CTYPE; break
+        fi
+      done
+      ;;
+  esac
+fi
+
 MEM_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SYN_FILE="$MEM_DIR/scripts/synonyms.tsv"
 
@@ -26,29 +52,56 @@ if [ "${#keywords[@]}" -eq 0 ]; then
   exit 1
 fi
 
+# ── 可移植性：bash 3.2（macOS 自带）+ GNU/BSD 双兼容 ──────────────────
+# 关联数组（declare -A）需 bash 4+，mapfile 需 bash 4+，stat -c/date -d 仅 GNU。
+# 以下用「分隔符字符串表 + case 查表」实现等价语义，兼容 bash 3.2 且不引入 eval。
+_SYN_MAP=""   # 格式: $'\x1f词\x1f扩展\x1e' 重复拼接（\x1f 作字段分隔，\x1e 作记录分隔）
+seen_has() { case "$_SEEN_MAP" in *$'\x1f'"$1"$'\x1f'*) return 0 ;; *) return 1 ;; esac; }
+seen_add() { _SEEN_MAP="$_SEEN_MAP"$'\x1f'"$1"$'\x1f'; }
+seen_reset() { _SEEN_MAP=""; }
+# 文件 mtime（epoch 秒）：GNU stat -c → BSD stat -f → python3 兜底
+file_mtime() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null \
+    || python3 -c 'import os,sys; print(int(os.path.getmtime(sys.argv[1])))' "$1" 2>/dev/null \
+    || echo 0
+}
+# epoch → YYYY-MM-DD：GNU date -d → BSD date -r → python3 兜底
+fmt_date() {
+  date -d @"$1" +%Y-%m-%d 2>/dev/null || date -r "$1" +%Y-%m-%d 2>/dev/null \
+    || python3 -c 'import sys,datetime; print(datetime.datetime.fromtimestamp(int(sys.argv[1])).strftime("%Y-%m-%d"))' "$1" 2>/dev/null \
+    || echo '?'
+}
+
 # ── 同义词扩展（scripts/synonyms.tsv，格式: 词<TAB>扩展词1 扩展词2）────
-declare -A syn_map
 if [ -f "$SYN_FILE" ]; then
   while IFS=$'\t' read -r k rest; do
     [ -n "$k" ] || continue
     case "$k" in \#*) continue ;; esac
-    syn_map["$k"]="$rest"
+    _SYN_MAP="$_SYN_MAP"$'\x1f'"$k"$'\x1f'"$rest"$'\x1e'
   done < "$SYN_FILE"
 fi
+syn_lookup() {  # $1=词 → 打印其扩展词（未命中则无输出）
+  case "$_SYN_MAP" in
+    *$'\x1f'"$1"$'\x1f'*)
+      _rest="${_SYN_MAP#*$'\x1f'"$1"$'\x1f'}"
+      printf '%s' "${_rest%%$'\x1e'*}"
+      ;;
+  esac
+}
 orig=("${keywords[@]}")
 expanded_notes=()
 for kw in "${keywords[@]}"; do
-  ext="${syn_map["$kw"]:-}"
+  ext="$(syn_lookup "$kw")"
   if [ -n "$ext" ]; then
-    expanded_notes+=("$kw→${ext// /|}")
+    expanded_notes+=("${kw}→${ext// /|}")
     for w in $ext; do keywords+=("$w"); done
   fi
 done
 # 去重（保持顺序）
-declare -A seen
+seen_reset
 uniq=()
 for kw in "${keywords[@]}"; do
-  [ -n "${seen[$kw]:-}" ] || { seen[$kw]=1; uniq+=("$kw"); }
+  if ! seen_has "$kw"; then seen_add "$kw"; uniq+=("$kw"); fi
 done
 keywords=("${uniq[@]}")
 
@@ -78,10 +131,13 @@ if [ "$OPT_INCLUDE_SCRIPTS" -eq 1 ]; then
 fi
 
 # ── 统计与排序（归一化命中率 + 文件名加权，mtime 兜底）────────────────
-scan_group() { # $1=输出数组名  $2..=文件（结果数组直接写入调用者；总命中行数写全局 G_TOTAL）
-  local -n out="$1"; shift
+# 可移植性：原用 local -n（nameref，需 bash 4.3+）把结果写回调用者指定数组。
+# bash 3.2 无 nameref，改为写入固定全局数组 G_ENTRIES，由调用方立即拷走。
+# 不能用命令替换（子 shell 会丢失 G_TOTAL），故保持全局数组传递。
+scan_group() { # $1..=文件；结果写入全局 G_ENTRIES，总命中行数写入 G_TOTAL
   local stats=() f c mtime rel name_hit entries score
   G_TOTAL=0
+  G_ENTRIES=()
   for f in "$@"; do
     c="$(grep -Fc "${args[@]}" "$f" 2>/dev/null || true)"
     [ "${c:-0}" -gt 0 ] || continue
@@ -93,14 +149,16 @@ scan_group() { # $1=输出数组名  $2..=文件（结果数组直接写入调�
     entries="$(grep -c '^- \*\*' "$f" 2>/dev/null || true)"
     [ "${entries:-0}" -gt 4 ] || entries=4
     score=$((c * 100 / entries + name_hit))
-    mtime="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
+    mtime="$(file_mtime "$f")"
     stats+=("$score	$mtime	${f#"$MEM_DIR"/}	$c	$name_hit")
     G_TOTAL=$((G_TOTAL + c))
   done
+  G_ENTRIES=()
   if [ "${#stats[@]}" -gt 0 ]; then
-    mapfile -t out < <(printf '%s\n' "${stats[@]}" | sort -t$'\t' -k1,1nr -k2,2nr)
-  else
-    out=()
+    # mapfile 需 bash 4+（macOS 无）：等价的 while read 读入（无子 shell，G_ENTRIES 保留）
+    while IFS= read -r _line; do G_ENTRIES+=("$_line"); done < <(
+      printf '%s\n' "${stats[@]}" | sort -t$'\t' -k1,1nr -k2,2nr
+    )
   fi
 }
 
@@ -113,9 +171,9 @@ print_group() { # $1=组标题 $2..=entries（实际列出的文件数写全局 
     IFS=$'\t' read -r sortk mtime rel cnt name_hit <<<"$entry"
     shown_files=$((shown_files + 1))
     local date_s
-    date_s="$(date -d @"$mtime" +%Y-%m-%d 2>/dev/null || echo '?')"
+    date_s="$(fmt_date "$mtime")"
     echo ""
-    echo "[$shown_files/$GROUP_TOTAL] $rel — 命中 ${cnt} 行（更新 $date_s）"
+    echo "[$shown_files/$GROUP_TOTAL] $rel — 命中 ${cnt} 行（更新 ${date_s}）"
     local remaining per_file out n_shown
     remaining=$((MAX_LINES - GLOBAL_SHOWN))
     per_file=$((MAX_PER_FILE < remaining ? MAX_PER_FILE : remaining))
@@ -138,10 +196,13 @@ for l in sys.stdin:
 # ── 主流程 ───────────────────────────────────────────────────────────
 know_entries=(); arch_entries=(); scr_entries=()   # 空数组赋值（bash 5.2 兼容，见上）
 total_know=0; total_arch=0; total_scr=0
-if [ "${#know_files[@]}" -gt 0 ]; then scan_group know_entries "${know_files[@]}"; total_know=$G_TOTAL; fi
+# G_ENTRIES 是 scan_group 的全局出口，每次调用后须立即拷走（见 scan_group 注释）
+# 注：bash 3.2（macOS 自带）在 set -u 下对空数组的 "${arr[@]}" 会报 unbound variable，
+# 故一律用 ${arr[@]+"${arr[@]}"} 惯用法（有元素才展开）。
+if [ "${#know_files[@]}" -gt 0 ]; then scan_group "${know_files[@]}"; know_entries=(${G_ENTRIES[@]+"${G_ENTRIES[@]}"}); total_know=$G_TOTAL; fi
 # 归档组总是扫描（拿提示用），仅 --all 才显示明细
-if [ "${#arch_files[@]}" -gt 0 ]; then scan_group arch_entries "${arch_files[@]}"; total_arch=$G_TOTAL; fi
-if [ "${#scr_files[@]}" -gt 0 ]; then scan_group scr_entries "${scr_files[@]}"; total_scr=$G_TOTAL; fi
+if [ "${#arch_files[@]}" -gt 0 ]; then scan_group "${arch_files[@]}"; arch_entries=(${G_ENTRIES[@]+"${G_ENTRIES[@]}"}); total_arch=$G_TOTAL; fi
+if [ "${#scr_files[@]}" -gt 0 ]; then scan_group "${scr_files[@]}"; scr_entries=(${G_ENTRIES[@]+"${G_ENTRIES[@]}"}); total_scr=$G_TOTAL; fi
 
 if [ "${#know_entries[@]}" -eq 0 ] && [ "${#arch_entries[@]}" -eq 0 ] && [ "${#scr_entries[@]}" -eq 0 ]; then
   echo "== dsh-memory 无命中（${orig[*]}）=="

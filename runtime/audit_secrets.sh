@@ -11,6 +11,32 @@
 # 豁免: 占位符（<PAT> ${VAR} *** ChangeMe_* 等）不算泄漏；
 #       确需提交请 git commit --no-verify（并人工确认无害）
 set -u
+
+# ── 环境守卫（可移植性）───────────────────────────────────────────────
+# 依赖：bash ≥3.2 + 常见 POSIX 工具；脚本本身已避免 bash 4+ 特性
+# （declare -A / mapfile / local -n）与 GNU 专有参数（stat -c / date -d）。
+# 设 DSH_SKIP_ENV_CHECK=1 可跳过本段检查。
+# locale 兜底：LC_CTYPE 为 C/POSIX 时，bash 3.2 会把「变量名紧跟多字节字符」
+# 误解析为变量名的一部分（多字节首字节被并入变量名 → unbound variable），
+# 故显式选用一个可用的 UTF-8 locale；找不到时至少不再假装成功。
+# 注：脚本内所有「变量紧跟多字节字符」处一律写 ${var} 花括号形式。
+if [ "${DSH_SKIP_ENV_CHECK:-0}" != "1" ]; then
+  if [ -n "${BASH_VERSINFO:-}" ] && [ "${BASH_VERSINFO[0]}" -lt 3 ]; then
+    echo "❌ 需要 bash ≥3.2，当前 ${BASH_VERSION:-未知}。macOS 自带 bash 3.2 可用；" >&2
+    echo "   若报语法错误请安装新版：brew install bash" >&2
+    exit 1
+  fi
+  case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    C|POSIX)
+      for _loc in en_US.UTF-8 zh_CN.UTF-8 C.UTF-8; do
+        if locale -a 2>/dev/null | grep -qx "$_loc"; then
+          LC_ALL="$_loc"; LC_CTYPE="$_loc"; export LC_ALL LC_CTYPE; break
+        fi
+      done
+      ;;
+  esac
+fi
+
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
 PY_SCAN='
@@ -72,7 +98,7 @@ scan_staged() {
 
 scan_path() {
   local target="$1" rc=0
-  echo "== 防泄漏审计（$target）=="
+  echo "== 防泄漏审计（${target}）=="
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     if ! python3 -c "$PY_SCAN" "$f" < "$f"; then
