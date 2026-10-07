@@ -77,10 +77,23 @@ export GIT_HTTP_LOW_SPEED_LIMIT=1000
 export GIT_HTTP_LOW_SPEED_TIME=30
 
 # ── 凭据注入：优先环境变量 DSH_GITLAB_PAT（进程内，不落盘）────────────
+# 注意：AUTH_URL 必须保留仓库完整路径（含宿主子路径部署），只替换 userinfo 部分。
+# 2026-10-07 修复：原实现按“scheme://host/…”取 host 后直接拼接，会丢掉仓库路径
+# （退化成 scheme://oauth2:<PAT>@HOST 这种缺路径的形式），导致私有仓库 pull/push 全部失败。
 if [ -n "${DSH_GITLAB_PAT:-}" ]; then
-  host="$(git remote get-url origin 2>/dev/null | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)/.*#\1#')"
-  scheme="$(git remote get-url origin 2>/dev/null | sed -E 's#^([a-zA-Z][a-zA-Z0-9+.-]*://).*#\1#')"
-  AUTH_URL="${scheme}oauth2:${DSH_GITLAB_PAT}@${host#*://}"
+  _url="$(git remote get-url origin 2>/dev/null || echo '')"
+  host="$(printf '%s' "$_url" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)/.*#\1#')"
+  scheme="$(printf '%s' "$_url" | sed -E 's#^([a-zA-Z][a-zA-Z0-9+.-]*://).*#\1#')"
+  _path="/$(printf '%s' "$_url" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://[^/]+/##')"
+  AUTH_URL="${scheme}oauth2:${DSH_GITLAB_PAT}@${host#*://}${_path}"
+fi
+# ls-remote / pull / push 都要带凭据（私有仓库匿名访问会失败，导致误判“远端不可达”）。
+# 注意：不能用 `-c remote.origin.url=$AUTH_URL` 覆盖——git（实测 2.39.2）不会把该覆盖
+# 用于随后的凭据查找，仍会回落到真实 remote URL 而要求交互输入用户名。直接传 URL 位置参数才有效。
+if [ -n "${AUTH_URL:-}" ]; then
+  REMOTE_SPEC="$AUTH_URL"
+else
+  REMOTE_SPEC="origin"
 fi
 
 git add -A
@@ -94,26 +107,13 @@ fi
 if git remote | grep -q origin; then
   # 远端尚无该分支（空仓库首次推送）→ 跳过 pull 直接 push；
   # 注意与「远端不可达」区分：ls-remote --heads 成功（空输出也 exit 0）且无该分支才算首次推送
-  heads="$(git ls-remote --heads origin "$BRANCH" 2>/dev/null || true)"
-  if git ls-remote --heads origin "$BRANCH" >/dev/null 2>&1 && [ -z "$heads" ]; then
+  # （ls-remote 同样需凭据，否则私有仓库匿名失败会被误判）
+  if git ls-remote --heads "$REMOTE_SPEC" "$BRANCH" >/dev/null 2>&1 \
+     && [ -z "$(git ls-remote --heads "$REMOTE_SPEC" "$BRANCH" 2>/dev/null || true)" ]; then
     echo "远端尚无 ${BRANCH}（首次推送），跳过 pull"
-    if [ -n "${AUTH_URL:-}" ]; then
-      git -c credential.helper= -c "remote.origin.url=$AUTH_URL" push origin "$BRANCH" 2>&1
-    else
-      git push origin "$BRANCH" 2>&1
-    fi
-  elif [ -n "${AUTH_URL:-}" ]; then
-    if ! git -c credential.helper= -c "remote.origin.url=$AUTH_URL" pull --rebase origin "$BRANCH" 2>&1; then
-      if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
-        echo "❌ rebase 冲突：$MEM_DIR 需人工处理（git status 查看；解决后 git rebase --continue，或 git rebase --abort）。未推送。"
-        exit 1
-      fi
-      echo "❌ pull --rebase 失败（非冲突原因），未推送。"
-      exit 1
-    fi
-    git -c credential.helper= -c "remote.origin.url=$AUTH_URL" push origin "$BRANCH" 2>&1
+    git push "$REMOTE_SPEC" "$BRANCH" 2>&1
   else
-    if ! git pull --rebase origin "$BRANCH" 2>&1; then
+    if ! git pull --rebase "$REMOTE_SPEC" "$BRANCH" 2>&1; then
       if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
         echo "❌ rebase 冲突：$MEM_DIR 需人工处理（git status 查看；解决后 git rebase --continue，或 git rebase --abort）。未推送。"
         exit 1
@@ -121,7 +121,7 @@ if git remote | grep -q origin; then
       echo "❌ pull --rebase 失败（非冲突原因），未推送。"
       exit 1
     fi
-    git push origin "$BRANCH" 2>&1
+    git push "$REMOTE_SPEC" "$BRANCH" 2>&1
   fi
   echo "已推送 origin/${BRANCH}（rebase 不 force-push）"
 else

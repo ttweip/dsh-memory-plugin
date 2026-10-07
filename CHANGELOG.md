@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.7.3（2026-10-07，memory_sync 私有仓库凭据修复）
+
+### 修复（会导致同步完全不可用）
+- **`memory_sync.sh` 凭据 URL 丢失仓库路径**：原实现取 host 后直接拼 `scheme://oauth2:PAT@host`，丢掉仓库路径，认证必然失败。改为按 URL 结构替换 userinfo、保留完整路径（兼容宿主子路径部署）。
+- **`ls-remote` 未带凭据**：私有仓库匿名访问失败 → 被误判为「远端不可达」，进而走错分支。现在 ls-remote / pull / push 统一使用认证 URL。
+- **弃用无效的 `-c remote.origin.url=<auth>` 覆盖**：实测 git 2.39.2 下该覆盖**不参与凭据查找**，仍回落真实 remote URL 并要求交互输入用户名；改为直接传 URL 位置参数（唯一可靠方式）。
+
+### 影响
+v1.7.2 及更早：对**私有** GitLab 仓库 `memory_sync` 无法推送（公开仓库不受影响，因无需认证）。
+
+### 已知问题（未修，待办）
+- `audit_secrets.sh` 的「URL 内嵌密码」规则提取密码位有 bug：`hit.split(":", 1)[1]` 对 `http://user:pw@` 会先切到 `http` 的冒号，得到 `//user` 而非 `pw`，导致占位符豁免（`<PAT>`/`${VAR}`/`TOKEN` 等）**全部失效**，只要出现 `scheme://x:y@` 形式的文本（哪怕注释示例）就误报。需改用 `urlsplit`/`rsplit('@')` 正确取 userinfo。
+
 ## v1.7.2（2026-10-07，修复 runtime 未随包发布）
 
 ### 修复（重要）
