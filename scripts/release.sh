@@ -53,12 +53,13 @@ git -c user.name="dsh-memory" -c user.email="memory@dsh.local" commit -q -m "$ME
 git push -q "http://deploy:$GL_PAT@$GL_HTTP/deploy/dsh-memory-plugin.git" main
 git tag "$VERSION"
 git push -q "http://deploy:$GL_PAT@$GL_HTTP/deploy/dsh-memory-plugin.git" "$VERSION"
-python3 - "$VERSION" "$DESC" <<'PYEOF' > "$tmp/body.json"
+python3 - "$VERSION" "$DESC" <<'PYEOF' > "$tmp/gl-body.json"
 import json, sys
+# GitLab Releases API 用 description 字段
 print(json.dumps({"name": sys.argv[1], "tag_name": sys.argv[1], "description": sys.argv[2]}))
 PYEOF
 curl -s -m 20 -X POST -H "PRIVATE-TOKEN: $GL_PAT" -H "Content-Type: application/json" \
-  --data @"$tmp/body.json" "$GL_HTTP/api/v4/projects/deploy%2Fdsh-memory-plugin/releases" \
+  --data @"$tmp/gl-body.json" "$GL_HTTP/api/v4/projects/deploy%2Fdsh-memory-plugin/releases" \
   | python3 -c "import json,sys; r=json.load(sys.stdin); print('✓ GitLab release:', r.get('tag_name')) if 'tag_name' in r else (print('FAIL:', r), sys.exit(1))"
 
 # ── 4) 同步 GitHub 镜像（main + tag + release）─────────────────────────
@@ -66,9 +67,24 @@ echo "== 4) GitHub =="
 GH_URL="https://oauth2:$GH_PAT@github.com/ttweip/dsh-memory-plugin.git"
 git push -q "$GH_URL" main
 git push -q "$GH_URL" "$VERSION"
-curl -s -m 20 -X POST -H "Authorization: Bearer $GH_PAT" -H "Accept: application/vnd.github+json" \
-  --data @"$tmp/body.json" "https://api.github.com/repos/ttweip/dsh-memory-plugin/releases" \
-  | python3 -c "import json,sys; r=json.load(sys.stdin); print('✓ GitHub release:', r.get('tag_name'), r.get('html_url','')) if 'tag_name' in r else (print('FAIL:', r), sys.exit(1))"
+python3 - "$VERSION" "$DESC" <<'PYEOF' > "$tmp/gh-body.json"
+import json, sys
+# GitHub Releases API 用 body 字段（v1.7.0 修复：此前误用 description，
+# 导致 GitHub 端 release 描述长期为空——字段不识别被静默忽略）
+print(json.dumps({"name": sys.argv[1], "tag_name": sys.argv[1], "body": sys.argv[2]}))
+PYEOF
+GH_RESP="$(curl -s -m 20 -X POST -H "Authorization: Bearer $GH_PAT" -H "Accept: application/vnd.github+json" \
+  --data @"$tmp/gh-body.json" "https://api.github.com/repos/ttweip/dsh-memory-plugin/releases")"
+printf '%s' "$GH_RESP" | python3 -c "
+import json, sys
+r = json.load(sys.stdin)
+if 'tag_name' not in r:
+    print('FAIL:', r); sys.exit(1)
+body = r.get('body') or ''
+if not body.strip():
+    print('FAIL: GitHub release 创建成功但描述为空（字段名可能不被识别）'); sys.exit(1)
+print('✓ GitHub release:', r.get('tag_name'), f'({len(body)} 字符)', r.get('html_url', ''))
+"
 
 # ── 5) 待办提示 ────────────────────────────────────────────────────────
 echo "== 5) 收尾待办 =="

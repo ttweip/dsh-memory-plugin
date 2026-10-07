@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.7.1（2026-10-07，发布流程修复）
+
+### 修复
+- **`scripts/release.sh`：GitHub release 描述长期为空**。GitLab Releases API 用 `description` 字段，GitHub Releases API 用 `body` 字段；原脚本把同一份 JSON 同时喂给两端，GitHub 端因字段名不被识别而**静默忽略**描述。影响范围：v1.2.0 起的**所有** GitHub release（经核对 body 均为 0 字符）。
+  - 改为两端各生成对应字段的 JSON（`gl-body.json` / `gh-body.json`）
+  - GitHub 步骤增加**描述非空校验**：创建成功但 `body` 为空即判失败退出，避免同类静默问题再次发生
+
+### 说明
+- v1.7.0 的 GitHub release 描述已通过 PATCH 补填（与 GitLab 端一致，1520 字符）
+- 历史 release（v1.2.0 / v1.4.1 / v1.6.0）的 GitHub 描述仍为空，可按需用其 CHANGELOG 段落回填
+
 ## v1.7.0（2026-10-07，macOS / BSD 可移植性）
 
 > 背景：在 macOS（自带 bash 3.2 + BSD 工具链）上部署时发现记忆检索**静默失效**——脚本崩溃但退出码为 0，插件据此显示「无命中」，用户会误判记忆库为空。本次修复可移植性并加入环境守卫。
