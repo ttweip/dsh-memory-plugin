@@ -31,6 +31,18 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 - **插件自带 `runtime/`（v1.6.2）**：记忆库脚本 + PROTOCOL.md + MEMORY.md 模板的随包副本，供 `init` 在新环境落地使用；发版前用 `bash install.sh sync-runtime [记忆库路径]` 从记忆库刷新
 - **路径不固化（v1.1）**：记忆库定位优先级 = `config.memoryDir` > 环境变量 `DSH_MEMORY_DIR` > **从会话 cwd 向上动态发现 `.dsh-memory/`**（含 MEMORY.md 即命中）> 兜底 `/mnt/smb/.dsh-memory`。记忆库可整体搬迁（内部脚本均相对定位）
 
+### 运行环境（v1.7.0 起）
+
+| 组件 | 要求 |
+|---|---|
+| Node | ≥ 20（插件本体 `index.mjs` 零依赖） |
+| bash | ≥ 3.2（脚本已避免 `declare -A` / `mapfile` / `local -n` 等 bash 4+ 特性） |
+| 工具链 | GNU 或 BSD 均可（`stat` / `date` / `grep` 已双兼容，`python3` 用于兜底） |
+
+- **macOS 可用**：macOS 自带 bash 3.2 与 BSD 工具链，v1.7.0 起开箱可用（v1.6.2 及更早版本会静默失效，见 CHANGELOG）。
+- **环境守卫**：脚本启动时校验 bash 版本；`LC_ALL`/`LC_CTYPE`/`LANG` 为 `C`/`POSIX` 时自动选用可用的 UTF-8 locale（`en_US.UTF-8` → `zh_CN.UTF-8` → `C.UTF-8`）。设 `DSH_SKIP_ENV_CHECK=1` 可跳过。
+- **无 `flock` 的平台**（macOS）：`memory_sync.sh` 降级为不锁，多会话并发 sync 无互斥保护。
+
 ## 初始化（新环境）★ v1.6.2
 
 新机器/新工作区里没有任何记忆库时，一条命令建好（也可由会话内的 `memory_init` 工具完成）：

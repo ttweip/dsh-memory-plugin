@@ -17,6 +17,32 @@
 # 凭据：remote 不内嵌 token，走 ~/.git-credentials 或环境变量注入。
 set -euo pipefail
 
+# ── 环境守卫（可移植性）───────────────────────────────────────────────
+# 依赖：bash ≥3.2 + 常见 POSIX 工具；脚本本身已避免 bash 4+ 特性
+# （declare -A / mapfile / local -n）与 GNU 专有参数（stat -c / date -d）。
+# 设 DSH_SKIP_ENV_CHECK=1 可跳过本段检查。
+# locale 兜底：LC_CTYPE 为 C/POSIX 时，bash 3.2 会把「变量名紧跟多字节字符」
+# 误解析为变量名的一部分（多字节首字节被并入变量名 → unbound variable），
+# 故显式选用一个可用的 UTF-8 locale；找不到时至少不再假装成功。
+# 注：脚本内所有「变量紧跟多字节字符」处一律写 ${var} 花括号形式。
+if [ "${DSH_SKIP_ENV_CHECK:-0}" != "1" ]; then
+  if [ -n "${BASH_VERSINFO:-}" ] && [ "${BASH_VERSINFO[0]}" -lt 3 ]; then
+    echo "❌ 需要 bash ≥3.2，当前 ${BASH_VERSION:-未知}。macOS 自带 bash 3.2 可用；" >&2
+    echo "   若报语法错误请安装新版：brew install bash" >&2
+    exit 1
+  fi
+  case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    C|POSIX)
+      for _loc in en_US.UTF-8 zh_CN.UTF-8 C.UTF-8; do
+        if locale -a 2>/dev/null | grep -qx "$_loc"; then
+          LC_ALL="$_loc"; LC_CTYPE="$_loc"; export LC_ALL LC_CTYPE; break
+        fi
+      done
+      ;;
+  esac
+fi
+
+
 PLUGIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNTIME_DIR="$PLUGIN_DIR/runtime"
 REMOTE_PRIMARY="http://192.168.0.145/deploy/dsh-memory-plugin.git"
@@ -68,7 +94,7 @@ $MARKER ────────────────────────
 $config_block
         injectHint: true
 EOF
-  echo "已安装：$profile（重启 dsh 生效）"
+  echo "已安装：${profile}（重启 dsh 生效）"
 }
 
 update_files() {
@@ -206,7 +232,7 @@ init_library() {
   local lib="$dir/.dsh-memory"
 
   if [ -f "$lib/MEMORY.md" ] && [ "$force" -ne 1 ]; then
-    echo "已存在记忆库：$lib（如需重建请加 --force）"
+    echo "已存在记忆库：${lib}（如需重建请加 --force）"
     return 0
   fi
 
@@ -270,7 +296,7 @@ sync_runtime() {
      "$sdir"/memory_add.py "$sdir"/memory_suggest.py "$sdir"/synonyms.tsv "$RUNTIME_DIR/"
   [ -f "$src/PROTOCOL.md" ] && cp "$src/PROTOCOL.md" "$RUNTIME_DIR/PROTOCOL.md"
   chmod +x "$RUNTIME_DIR"/*.sh "$RUNTIME_DIR"/*.py
-  echo "✅ runtime/ 已同步（源：$src，$(ls -1 "$RUNTIME_DIR" | wc -l) 个文件）"
+  echo "✅ runtime/ 已同步（源：${src}，$(ls -1 "$RUNTIME_DIR" | wc -l) 个文件）"
   echo "   注意：MEMORY.md.template 不随同步改动（手工维护）"
 }
 

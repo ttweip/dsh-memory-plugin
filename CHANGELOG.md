@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.7.0（2026-10-07，macOS / BSD 可移植性）
+
+> 背景：在 macOS（自带 bash 3.2 + BSD 工具链）上部署时发现记忆检索**静默失效**——脚本崩溃但退出码为 0，插件据此显示「无命中」，用户会误判记忆库为空。本次修复可移植性并加入环境守卫。
+
+### 修复（可移植性）
+- **`memory_search.sh` 去掉 bash 4+ 依赖**（macOS 自带 bash 3.2 直接报错，且失败后继续执行、最终 exit 0 导致静默失效）：
+  - `declare -A`（关联数组，需 bash 4.0）→ 分隔符字符串表 + `case` 查表（`_SYN_MAP` / `_SEEN_MAP`，不引入 `eval`）
+  - `mapfile`（需 bash 4.0）→ `while IFS= read -r` 循环（无子 shell，保留全局状态）
+  - `local -n`（nameref，需 bash 4.3）→ 固定全局数组 `G_ENTRIES` + 调用方拷贝
+  - 空数组在 `set -u` 下展开报 unbound（bash 3.2 行为）→ `${arr[@]+"${arr[@]}"}` 惯用法
+- **GNU/BSD 命令双兼容**：`stat -c %Y`（GNU）→ `stat -f %m`（BSD）；`date -d @ts`（GNU）→ `date -r ts`（BSD）；封装为 `file_mtime()` / `fmt_date()`，先试 GNU 再回退 BSD，最后 `python3` 兜底
+- **修 11 处「变量紧跟多字节字符」导致的崩溃**：`LC_CTYPE=C/POSIX` 时 bash 3.2 会把多字节字符首字节并入变量名（如变量名后紧跟箭头字符时，解析出的变量名多出一个字节 → unbound variable，脚本 rc=1）。涉及 `memory_search.sh`(2) / `memory_sync.sh`(3) / `audit_secrets.sh`(1) / `selfcheck.sh`(2) / `install.sh`(3)，一律改为 `${var}` 花括号形式
+
+### 新增
+- **环境守卫**（4 个 runtime 脚本 + `install.sh`）：启动时校验 bash 版本；`LC_ALL`/`LC_CTYPE`/`LANG` 为 `C`/`POSIX` 时自动选用可用的 UTF-8 locale 兜底（`en_US.UTF-8` → `zh_CN.UTF-8` → `C.UTF-8`）。设 `DSH_SKIP_ENV_CHECK=1` 可跳过
+- **`selfcheck.sh` 在无 `flock` 的环境（macOS）跳过 SY3 并发用例**并说明原因，不再误判为失败（`memory_sync.sh` 本就有 `command -v flock` 守卫，会降级为不锁）
+
+### 测试
+- `selfcheck.sh`：**61 通过 / 0 失败**（C locale 与 UTF-8 locale 下均全绿）；修复前在 macOS 为 47 通过 / 14 失败
+- `npm test` 22/22 通过
+
+### 已知限制
+- macOS 无 `flock`，多会话并发 `memory_sync` 无互斥保护（降级为不锁）
+- 记忆库默认兜底路径 `/mnt/smb/.dsh-memory` 为 Linux 习惯；macOS 建议用 `config.memoryDir` 或把库放在会话 cwd 的上级目录
+
 ## v1.6.2（2026-09-22，新环境初始化）
 
 ### 新增
