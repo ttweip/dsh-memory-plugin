@@ -10,6 +10,15 @@
 - [ ] `npm test` 全绿（当前 ≥22 用例；注意上面的偶发说明）
 - [ ] 记忆库 `bash scripts/selfcheck.sh` 全绿（当前 61 用例；建议 **C locale 与 UTF-8 locale 各跑一次**：`env -u LANG LC_ALL=C bash scripts/selfcheck.sh`，v1.7.0 起两者均应全绿）
 - [ ] GitLab release 已建、GitHub release 已建（两端 tag 对齐）
+- [ ] **release 描述两端非空且一致**（v1.7.1 前 GitHub 端因字段名错误长期为空；v1.7.1 起 release.sh 有校验）
+- [ ] **「发布产物内容」校验——不要只看 release 页面是否 200**（v1.7.2 教训：release.sh 漏拷 `runtime/`，发布了 3 个版本但 `runtime/` 一直是旧脚本，而流水线全绿）：
+      ```bash
+      rm -rf /tmp/vt && git clone -q --depth 1 --branch <tag> <repo-url> /tmp/vt
+      grep -c '环境守卫'  /tmp/vt/runtime/memory_search.sh   # 应 ≥1
+      grep -c '_SYN_MAP'  /tmp/vt/runtime/memory_search.sh   # 应 ≥1
+      grep -c '^[^#]*declare -A' /tmp/vt/runtime/memory_search.sh  # 应为 0
+      diff -rq /tmp/vt/runtime <插件目录>/runtime             # 应无差异
+      ```
 - [ ] 记忆库两端 commit 一致（GitLab deploy/dsh-memory == GitHub ttweip/dsh-memory）
 
 ## 真机验收（dsh-tui 新会话，自动化覆盖不到）
