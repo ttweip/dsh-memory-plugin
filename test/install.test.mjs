@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, statSync, cpSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +10,16 @@ const PLUGIN_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const INSTALL_SH = join(PLUGIN_DIR, 'install.sh')
 const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8' })
 const sh = (args) => execFileSync('bash', [INSTALL_SH, ...args], { encoding: 'utf8' })
+
+function copyPluginFiles(dest) {
+  mkdirSync(dest, { recursive: true })
+  for (const f of ['index.mjs', 'package.json', 'install.sh', 'README.md', 'CHANGELOG.md']) {
+    cpSync(join(PLUGIN_DIR, f), join(dest, f))
+  }
+  for (const d of ['runtime', 'scripts', 'test']) {
+    cpSync(join(PLUGIN_DIR, d), join(dest, d), { recursive: true })
+  }
+}
 
 test('install.sh：文件可执行且 update 用 bash 重新执行（防 Permission denied 回归）', () => {
   const mode = statSync(INSTALL_SH).mode
@@ -84,5 +94,51 @@ test('install.sh init --no-git：不建仓库；sync-runtime 可从记忆库刷�
     assert.ok(out2.includes('runtime/ 已同步'), out2)
     const after = execFileSync('ls', [join(PLUGIN_DIR, 'runtime')], { encoding: 'utf8' }).trim().split('\n').length
     assert.equal(after, before)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('install.sh update：本地远端全流程（旧档更新→重装 profile，防 exec/install 解析回归）', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-update-'))
+  try {
+    const home = join(root, 'home')
+    mkdirSync(join(home, '.dsh', 'profiles', 'web'), { recursive: true })
+    mkdirSync(join(home, '.dsh', 'profiles', 'dsh-tui'), { recursive: true })
+    writeFileSync(join(home, '.dsh', 'profiles', 'web', 'cordis.patch.yml'), '# web\n')
+    writeFileSync(join(home, '.dsh', 'profiles', 'dsh-tui', 'cordis.patch.yml'), '# tui\n')
+
+    // 构造一个本地“远端”：tag v9.9.9 的包版本改为 9.9.9，便于确认文件真的被更新。
+    const seed = join(root, 'seed')
+    copyPluginFiles(seed)
+    writeFileSync(join(seed, 'package.json'),
+      readFileSync(join(seed, 'package.json'), 'utf8').replace('"version": "1.8.2"', '"version": "9.9.9"'))
+    git(['init', '-q'], seed)
+    git(['add', '-A'], seed)
+    git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'seed v9.9.9'], seed)
+    git(['tag', 'v9.9.9'], seed)
+    const bare = join(root, 'remote.git')
+    execFileSync('git', ['clone', '-q', '--bare', seed, bare])
+
+    // 初始安装目录是当前版本；通过 update 拉到本地 remote 的 v9.9.9。
+    const plug = join(root, 'plugin')
+    copyPluginFiles(plug)
+    const out = execFileSync('bash', [join(plug, 'install.sh'), 'update'], {
+      cwd: plug,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: home,
+        DSH_MEMORY_PLUGIN_REMOTE: bare,
+        DSH_MEMORY_PLUGIN_FALLBACK_REMOTE: bare,
+      },
+    })
+    assert.ok(out.includes('已更新插件文件到 v9.9.9'), out)
+    assert.ok(out.includes('已安装：web'), out)
+    assert.ok(out.includes('已安装：dsh-tui'), out)
+    const pkg = JSON.parse(readFileSync(join(plug, 'package.json'), 'utf8'))
+    assert.equal(pkg.version, '9.9.9')
+    assert.ok(readFileSync(join(home, '.dsh', 'profiles', 'web', 'cordis.patch.yml'), 'utf8')
+      .includes('dsh-memory 记忆插件'))
+    assert.ok(readFileSync(join(home, '.dsh', 'profiles', 'dsh-tui', 'cordis.patch.yml'), 'utf8')
+      .includes('dsh-memory 记忆插件'))
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dsh-memory-plugin 本地安装/更新/卸载/初始化
 # 用法:
-#   install.sh [web|dsh-tui|all]               # 安装插件（默认 all；幂等）
+#   install.sh [install] [web|dsh-tui|all]       # 安装插件（默认 all；幂等）
 #   install.sh update [web|dsh-tui|all]        # 更新：拉远端最新 tag 覆盖插件目录，再重装配置
 #   install.sh uninstall [web|dsh-tui|all]     # 卸载：从 cordis.patch.yml 摘除本插件块
 #   install.sh init [目录] [选项]               # ★ 新环境初始化记忆库（.dsh-memory/）
@@ -45,25 +45,27 @@ fi
 
 PLUGIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNTIME_DIR="$PLUGIN_DIR/runtime"
-REMOTE_PRIMARY="http://192.168.0.145/deploy/dsh-memory-plugin.git"
-REMOTE_FALLBACK="https://github.com/ttweip/dsh-memory-plugin.git"
+REMOTE_PRIMARY="${DSH_MEMORY_PLUGIN_REMOTE:-http://192.168.0.145/deploy/dsh-memory-plugin.git}"
+REMOTE_FALLBACK="${DSH_MEMORY_PLUGIN_FALLBACK_REMOTE:-https://github.com/ttweip/dsh-memory-plugin.git}"
 MARKER='# ── dsh-memory 记忆插件'
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
 action=install
 case "${1:-all}" in
-  update|uninstall) action="$1"; shift || true ;;
+  update|uninstall|install) action="$1"; shift || true ;;
   init|sync-runtime) action="$1"; shift || true ;;
 esac
 
 targets=()
 if [ "$action" = install ] || [ "$action" = update ] || [ "$action" = uninstall ]; then
-  case "${1:-all}" in
-    all)     targets=(web dsh-tui) ;;
-    web)     targets=(web) ;;
-    dsh-tui) targets=(dsh-tui) ;;
-    *) echo "用法: $0 [update|uninstall|init|sync-runtime] [web|dsh-tui|all]" >&2; exit 1 ;;
-  esac
+  [ "$#" -gt 0 ] || set -- all
+  for _target in "$@"; do
+    case "$_target" in
+      all)     targets+=(web dsh-tui) ;;
+      web|dsh-tui) targets+=("$_target") ;;
+      *) echo "用法: $0 [install|update|uninstall|init|sync-runtime] [web|dsh-tui|all]" >&2; exit 1 ;;
+    esac
+  done
 fi
 
 patch_for() { echo "$HOME/.dsh/profiles/$1/cordis.patch.yml"; }

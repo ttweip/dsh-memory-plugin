@@ -7,7 +7,7 @@
 ## 发布侧（自动化已覆盖）
 - [ ] **`bash install.sh sync-runtime <记忆库路径>` 已跑**（把记忆库最新 scripts/ 与 PROTOCOL.md 拉进插件 `runtime/`，否则新环境 init 出的是旧脚本）
 - [ ] `node --check index.mjs` 通过
-- [ ] `npm test` 全绿（当前 ≥33 用例；注意上面的偶发说明）
+- [ ] `npm test` 全绿（当前 ≥34 用例；注意上面的偶发说明）
 - [ ] 记忆库 `bash scripts/selfcheck.sh` 全绿（当前 ≥78 用例；建议 **C locale 与 UTF-8 locale 各跑一次**：`env -u LANG LC_ALL=C bash scripts/selfcheck.sh`，v1.7.0 起两者均应全绿）
 - [ ] `npm test` 跨轮次重复 ≥3 次，确认无偶发失败
 - [ ] GitLab release 已建、GitHub release 已建（两端 tag 对齐）

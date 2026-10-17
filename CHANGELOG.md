@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.8.2（2026-10-18，install.sh update 重执行参数修复）
+
+### 修复
+- **`install.sh update` 重执行参数不被识别**：v1.8.1 中 update 末尾执行 `exec bash "$SELF" install web dsh-tui`，但脚本只识别 `update/uninstall/init/sync-runtime`，于是重装阶段报用法错误。现在正式支持 `install` 子命令，`update` 可完成“拉取新 tag → 重装 profile”全流程。
+- **升级旧版的一次性注意事项**：v1.8.0 及更早的 `install.sh` 没有执行位且 update 末尾用 `exec "$SELF" install ...`。首次升级请先 `chmod +x <插件目录>/install.sh` 再 `bash install.sh update`；或更新报 Permission denied 后直接执行 `bash install.sh all`（文件已更新，只差重装配置）。
+- 新增本地 bare remote 的 update 端到端测试（无需外网）：构造 v9.9.9 tag → 执行 update → 校验文件版本与两个 profile 均已重装。
+
+### 测试
+- `npm test`：34/34 通过。
+
 ## v1.8.1（2026-10-18，install.sh update 权限修复）
 
 ### 修复
@@ -11,7 +21,7 @@
 
 ### 测试
 - `npm test`：33/33 通过。
-- 从旧版 v1.8.0 目录实测 `install.sh update` → 获取 v1.8.1 → 重装 profile 成功。
+- 实测发现旧版 v1.8.0 → v1.8.1 的 update 仍受“目标文件权限不随 cp 提升”影响；v1.8.2 继续修复重执行参数，并给出旧版一次性 `chmod +x` 升级说明。
 
 ## v1.8.0（2026-10-18，记忆按需加载与检索收口）
 

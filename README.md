@@ -83,6 +83,8 @@ bash install.sh update     # 更新：拉 GitLab/GitHub 最新 tag 覆盖插件�
 bash install.sh uninstall  # 卸载：从 patch.yml 精确摘除本插件块
 ```
 
+> 从 v1.8.0 及更早版本首次升级时，如遇 `Permission denied`，先执行 `chmod +x <插件目录>/install.sh` 再重试；或更新后直接执行 `bash install.sh all` 重装配置（文件已更新）。v1.8.2 起支持完整的 `update → install` 重执行链路。
+
 装完重启 dsh（`systemctl restart dsh-web` 或重开会话）生效。
 
 ### 配置项

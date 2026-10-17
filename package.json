@@ -1,6 +1,6 @@
 {
   "name": "dsh-memory-plugin",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "description": "dsh 文件式记忆库插件：惰性会话引导 + memory_add / memory_search / memory_suggest / memory_sync / memory_init 工具（v1.3 域分组；v1.8 默认本地层、严格检索、reference 显式开启、输出预算）",
   "type": "module",
   "main": "index.mjs",
