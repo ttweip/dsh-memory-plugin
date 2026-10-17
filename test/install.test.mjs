@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +10,14 @@ const PLUGIN_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const INSTALL_SH = join(PLUGIN_DIR, 'install.sh')
 const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8' })
 const sh = (args) => execFileSync('bash', [INSTALL_SH, ...args], { encoding: 'utf8' })
+
+test('install.sh：文件可执行且 update 用 bash 重新执行（防 Permission denied 回归）', () => {
+  const mode = statSync(INSTALL_SH).mode
+  assert.ok((mode & 0o111) !== 0, 'install.sh 应带执行位：旧版 update 末尾会直接 exec 本文件')
+  const src = readFileSync(INSTALL_SH, 'utf8')
+  assert.match(src, /chmod \+x "\$PLUGIN_DIR\/install\.sh"/)
+  assert.match(src, /exec bash "\$SELF" install/)
+})
 
 test('install.sh init：空库脚手架（模板/脚本/git/防泄漏钩子）+ 幂等拒绝', () => {
   const ws = mkdtempSync(join(tmpdir(), 'dsh-init-'))

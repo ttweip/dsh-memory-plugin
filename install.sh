@@ -124,6 +124,7 @@ update_files() {
   [ -f "$tmp/src/index.mjs" ] || { echo "❌ 拉取内容异常（缺 index.mjs）" >&2; exit 1; }
 
   cp "$tmp/src/index.mjs" "$tmp/src/package.json" "$tmp/src/install.sh" "$PLUGIN_DIR/"
+  chmod +x "$PLUGIN_DIR/install.sh"   # 旧版 update 末尾会 exec 本文件，必须可执行
   [ -f "$tmp/src/README.md" ] && cp "$tmp/src/README.md" "$PLUGIN_DIR/"
   [ -f "$tmp/src/CHANGELOG.md" ] && cp "$tmp/src/CHANGELOG.md" "$PLUGIN_DIR/"
   if [ -d "$tmp/src/test" ]; then
@@ -308,7 +309,7 @@ case "$action" in
   update)
     update_files
     # L2 修复：install.sh 已被更新内容覆盖，exec 新脚本执行 install（避免旧 fd 继续读被覆盖文件）
-    exec "$SELF" install "${targets[@]}"
+    exec bash "$SELF" install "${targets[@]}"
     ;;
   uninstall)
     for p in "${targets[@]}"; do uninstall_from "$p"; done

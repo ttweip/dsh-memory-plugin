@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.8.1（2026-10-18，install.sh update 权限修复）
+
+### 修复
+- **`install.sh update` 更新后 Permission denied**：仓库中的 `install.sh` 是 `100644`，而 update 末尾直接 `exec "$SELF"`；更新文件复制完成后执行位仍缺失，导致插件文件已更新但配置重装失败。修复：
+  - `install.sh` 落实为可执行文件（Git mode `100755`）
+  - 更新复制后显式 `chmod +x` 新 `install.sh`
+  - 改为 `exec bash "$SELF"`，不依赖执行位
+- 新增安装链路回归测试：校验执行位、`chmod +x`、`exec bash` 三处。
+
+### 测试
+- `npm test`：33/33 通过。
+- 从旧版 v1.8.0 目录实测 `install.sh update` → 获取 v1.8.1 → 重装 profile 成功。
+
 ## v1.8.0（2026-10-18，记忆按需加载与检索收口）
 
 ### 变更（降低无关记忆进入上下文）
