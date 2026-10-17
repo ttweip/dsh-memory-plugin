@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.8.0（2026-10-18，记忆按需加载与检索收口）
+
+### 变更（降低无关记忆进入上下文）
+- **会话提示改为惰性加载**：不再要求每会话“先读 PROTOCOL.md 与 MEMORY.md”，只提示记忆库存在、按需检索与静默原则。此前模型若照做，每会话会额外读入约 13KB 索引/协议正文。
+- **memory_search 默认范围收口**：默认 `scope=local`，只检索本地知识层的 `MEMORY-*.md` 主题文件；`reference/128` 他机参考层需显式 `scope=reference/all`。不再默认返回 `MEMORY.md`、`PROTOCOL.md`、`README.md`、`scripts/` 命中。
+- **多词默认严格 AND**：每个原始关键词为一个词义组，组内允许同义词替代，组间必须全部命中；`any=true` / `--any` 才放宽为 OR。
+- **输出硬预算**：默认 3 个文件 / 每文件 3 行 / 全局 20 行（脚本环境变量可调），先定位主题，需要时再读原文。
+- **搜索超时处理**：默认 `searchTimeoutMs` 15s → 30s；超时若已有输出则保留部分结果并明确标注，不再笼统显示“失败”。
+- **检索性能**：默认不扫 reference/scripts 后，本机真实库默认查询约 4–7s（旧全量约 15s）；显式 reference/all 查询约 9–17s，均低于 30s 超时。
+
+### 修复
+- **`audit_secrets.sh` URL 内嵌密码提取 bug**：旧实现 `hit.split(":", 1)` 切到 scheme 的冒号，导致 `TOKEN` / `ChangeMe_*` 等占位符豁免失效。改为先取 `://` 后的 userinfo，再取密码位；补 URL 占位符与真实密码测试。
+
+### 测试
+- `npm test`：32/32 通过（插件参数透传/超时处理/旧版脚本兼容 + search CLI 范围、严格 AND、预算、空库、含空格文件名、并发一致性用例）。
+- 记忆库 `selfcheck.sh`：78/78 通过（新增本地/参考层隔离、严格 AND、OR 放宽、输出预算、元文件/脚本隔离、URL 占位符用例）。
+
 ## v1.7.3（2026-10-07，memory_sync 私有仓库凭据修复）
 
 ### 修复（会导致同步完全不可用）
@@ -10,8 +27,8 @@
 ### 影响
 v1.7.2 及更早：对**私有** GitLab 仓库 `memory_sync` 无法推送（公开仓库不受影响，因无需认证）。
 
-### 已知问题（未修，待办）
-- `audit_secrets.sh` 的「URL 内嵌密码」规则提取密码位有 bug：`hit.split(":", 1)[1]` 对 `http://user:pw@` 会先切到 `http` 的冒号，得到 `//user` 而非 `pw`，导致占位符豁免（`<PAT>`/`${VAR}`/`TOKEN` 等）**全部失效**，只要出现 `scheme://x:y@` 形式的文本（哪怕注释示例）就误报。需改用 `urlsplit`/`rsplit('@')` 正确取 userinfo。
+### 已知问题（v1.8.0 已修复）
+- `audit_secrets.sh` 的「URL 内嵌密码」规则提取密码位有 bug：`hit.split(":", 1)[1]` 对 `http://user:<password>@host` 会先切到 `http` 的冒号，得到 `//user` 而非密码位，导致占位符豁免（`<PAT>`/`${VAR}`/`TOKEN` 等）失效，只要出现 `scheme://user:<password>@host` 形式的文本（哪怕注释示例）就可能误报。v1.8.0 已改为先取 userinfo 再取密码位，并补测试。
 
 ## v1.7.2（2026-10-07，修复 runtime 未随包发布）
 

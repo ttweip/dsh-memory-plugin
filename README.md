@@ -4,11 +4,11 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 
 ```
 ┌─ dsh 会话 ───────────────────────────────────────────────┐
-│ 首次工具调用后 → 插件注入一次提示：                         │
-│   "dsh 记忆库存在：/mnt/smb/.dsh-memory，先读 PROTOCOL +    │
-│    MEMORY.md 索引；会话结束写 checkpoint"                  │
-│ 模型按提示读写记忆文件（索引式落盘）                         │
-│ memory_add（落盘）/ memory_search（检索）/ memory_sync（备份） │
+│ 首次工具调用后 → 注入一次轻量提示：                         │
+│   "记忆库存在；只在需要既往结论/环境事实时检索；静默操作"     │
+│ 不要求每会话预读 PROTOCOL / MEMORY.md 正文                  │
+│ memory_search 默认本地层、严格匹配、限制输出量；             │
+│ reference 参考层需显式 scope=reference/all                  │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -16,10 +16,10 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 
 | 功能 | 说明 |
 |---|---|
-| 会话引导提示 | 每会话一次（promotion 后），只提示"记忆库存在 + 协议要点"，不注入内容（同 instruction-hint 模式，省 token） |
+| 会话引导提示（v1.8 起惰性） | 每会话一次（promotion 后），只提示"记忆库存在 + 按需检索 + 静默原则"，**不要求预读 PROTOCOL/MEMORY 正文**，不注入记忆内容 |
 | 静默原则（v1.0.3） | 提示中声明：记忆操作（检索/落盘/备份）一律静默进行，不向用户播报；仅用户主动问起或涉及影响行为的新规则时才一句话带过 |
 | `memory_add`（v1.2.0，v1.6.1 起带域） | **落盘推荐写入口**：topic 必须带域（`<域>/<主题>` → `topics/<域>/MEMORY-<主题>.md`，域固定 dsh / idc-ops / projects / knowledge），MEMORY.md 的 See 行自动插进对应域小节、计数自动维护（真实条目数重算，可校正历史漂移）；同主题同标题自动拒绝防重复 |
-| `memory_search`（v1.6.1 起支持 `all`） | 按关键词检索记忆库（多词 OR；按文件聚合排序输出，排除 sessions/ 会话日志与 .git）；归档主题默认隐藏，`all: true` 透传 `--all` 展开明细 |
+| `memory_search`（v1.8 收口） | 默认**仅本地知识层**、多词**严格 AND**（同义词按词扩展）；`scope=reference/all` 才查他机参考层，`any=true` 才放宽为 OR；默认输出 3 文件 / 每文件 3 行 / 全局 20 行；`all=true` 只控制归档主题 |
 | `memory_suggest`（v1.6.0） | 查看最近 checkpoint 的候选区（Discovered candidates），半自动提取待确认知识（只读不写入） |
 | `memory_sync` | git commit + push 到 GitLab 备份仓库（merge 不 force-push）；sessions/ 不备份 |
 | `memory_init`（v1.6.2） | 新环境初始化记忆库：建空库（骨架 + 脚本 + git + 防泄漏钩子）或 `--from` 克隆已有库；已存在则不覆盖 |
@@ -27,7 +27,7 @@ dsh（DeepSeek Harness）的文件式记忆库插件 —— 给 dsh 补上跨会
 
 ## 依赖
 
-- **记忆数据仓库** `dsh-memory`（默认位于工作区根目录下的 `.dsh-memory/`）：含 PROTOCOL.md、MEMORY.md、`topics/<域>/MEMORY-<主题>.md`、sessions/、scripts/memory_search.sh、scripts/memory_add.py、scripts/memory_sync.sh、scripts/audit_secrets.sh（域分组与协议 v1.3 起）
+- **记忆数据仓库** `dsh-memory`（默认位于工作区根目录下的 `.dsh-memory/`）：含 PROTOCOL.md、MEMORY.md、`topics/<域>/MEMORY-<主题>.md`、sessions/、scripts/memory_search.sh、scripts/memory_add.py、scripts/memory_sync.sh、scripts/audit_secrets.sh（域分组自 v1.3；按需检索与 scope 隔离自协议 v1.4）
 - **插件自带 `runtime/`（v1.6.2）**：记忆库脚本 + PROTOCOL.md + MEMORY.md 模板的随包副本，供 `init` 在新环境落地使用；发版前用 `bash install.sh sync-runtime [记忆库路径]` 从记忆库刷新
 - **路径不固化（v1.1）**：记忆库定位优先级 = `config.memoryDir` > 环境变量 `DSH_MEMORY_DIR` > **从会话 cwd 向上动态发现 `.dsh-memory/`**（含 MEMORY.md 即命中）> 兜底 `/mnt/smb/.dsh-memory`。记忆库可整体搬迁（内部脚本均相对定位）
 
@@ -93,18 +93,31 @@ bash install.sh uninstall  # 卸载：从 patch.yml 精确摘除本插件块
 | `injectHint` | `true` | 是否注入会话引导提示 |
 | `initHint` | `true` | 工作区没有记忆库时，是否注入"如何初始化"提示（v1.6.2） |
 | `injectRecentCheckpoint` | `false` | 引导提示是否附带最近 checkpoint 摘要（护栏：仅 Active intent/Next action 两节、200 字上限，按工作区显式开启） |
-| `searchTimeoutMs` | `15000` | memory_search 脚本执行超时（毫秒） |
+| `searchTimeoutMs` | `30000` | memory_search 脚本执行超时（毫秒）；超时会保留已输出的部分结果 |
 | `addTimeoutMs` | `15000` | memory_add 脚本执行超时（毫秒） |
 | `syncTimeoutMs` | `120000` | memory_sync 脚本执行超时（毫秒） |
 | `initTimeoutMs` | `60000` | memory_init 初始化超时（毫秒，v1.6.2） |
+
+### memory_search 检索策略（v1.8）
+
+| 需求 | 参数 |
+|---|---|
+| 普通本地检索 | `memory_search {keyword: "关键词1 关键词2"}`（默认 strict AND + scope=local） |
+| 放宽多词匹配 | `any: true`（OR；同义词仍参与） |
+| 查他机参考层 | `scope: "reference"`；本地+参考一起查用 `scope: "all"` |
+| 查归档主题 | `all: true`（与 scope 独立） |
+
+- 默认只检索 `MEMORY-*.md` 主题文件，不返回 `MEMORY.md`、`PROTOCOL.md`、`README.md`、`scripts/` 命中；脚本检索需直接调用脚本并加 `--include-scripts`。
+- 插件会自动检测记忆库检索脚本版本：旧版脚本仍可跑默认查询并提示同步，显式使用 `scope`/`any` 时会明确拒绝，避免静默跑错范围。
+- 输出预算可用脚本环境变量调整：`MEMORY_SEARCH_MAX_FILES` / `MEMORY_SEARCH_MAX_PER_FILE` / `MEMORY_SEARCH_MAX_LINES`。
 
 ## 使用
 
 - 产生可复用知识（新规则/定稿决策/已验证经验）→ `memory_add {topic, title, body}`（落盘推荐写入口，索引自动维护；topic 支持「域/主题」如 `dsh/dsh-memory-plugin`）
 - 会话收尾 → `memory_suggest` 查看 checkpoint 候选区，挑选确认后逐条落盘
-- 会话中需要回忆既往知识 → `memory_search keyword`
+- 会话中需要回忆既往知识 → `memory_search keyword`（只在需要时用，不预读整库）
 - 落盘新知识后/会话结束 → `memory_sync "docs: ..."`（静默执行，不向用户播报）
-- 引导提示会指示模型：先读 PROTOCOL.md 与 MEMORY.md 索引；用 memory_add 索引式落盘；结束写 checkpoint；**记忆操作不向用户播报（静默原则）**
+- 引导提示会指示模型：按需检索、用 memory_add 索引式落盘、结束按需写 checkpoint；**记忆操作不向用户播报（静默原则）**
 
 ## 仓库结构
 

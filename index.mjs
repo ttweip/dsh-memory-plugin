@@ -2,12 +2,12 @@
  * dsh-memory — dsh 文件式记忆库插件（记忆方案 v1.2）
  *
  * 能力：
- *  1. 会话引导：会话首次工具调用（promotion）后，注入一次"记忆库存在"提示，
- *     指引模型读 PROTOCOL.md / MEMORY.md、按索引式落盘、结束写 checkpoint，
- *     并声明静默原则：记忆操作（检索/落盘/备份）不向用户播报。
- *     （与 preset 的 instruction-hint 同一模式：只提示存在性，不注入内容。）
+ *  1. 会话引导：会话首次工具调用（promotion）后，注入一次"记忆库存在"提示。
+ *     提示采用惰性加载：不要求每会话预读 PROTOCOL/MEMORY，只在需要既往
+ *     结论、规则或环境事实时检索；并声明记忆操作静默原则。
  *  2. memory_search：按关键词检索记忆库（调 .dsh-memory/scripts/memory_search.sh）。
- *     多关键词以空白分隔、按或（OR）匹配（v1.0.4 修复：此前整串字面匹配）。
+ *     默认仅本地知识层、多词严格 AND（同义词按词扩展）；reference 参考层需
+ *     scope=reference/all；any=true 才放宽为 OR。默认输出有硬预算。
  *  3. memory_add（v1.2.0）：索引式落盘推荐写入口——条目进 MEMORY-<topic>.md，
  *     MEMORY.md 的 See 索引计数自动维护（调 scripts/memory_add.py）。
  *  4. memory_sync：git 提交并推送备份（merge 不 force-push，调 memory_sync.sh）。
@@ -17,7 +17,7 @@
  *     库里没有 scripts/ 时，工具报错会指向本工具（此前只能人工 cd 折腾）。
  *
  * 配置项（config）：memoryDir / injectHint（默认 true）/ initHint（默认 true，
- *     无记忆库时提示如何初始化）/ searchTimeoutMs（默认 15000）/
+ *     无记忆库时提示如何初始化）/ searchTimeoutMs（默认 30000）/
  *     addTimeoutMs（默认 15000）/ syncTimeoutMs（默认 120000）/ initTimeoutMs（默认 60000）
  *
  * 记忆库定位（v1.2 隐藏目录规范）：
@@ -86,6 +86,8 @@ function toJsonSchema(spec) {
   for (const [key, meta] of Object.entries(spec || {})) {
     const prop = { type: meta.type }
     if (meta.description) prop.description = meta.description
+    if (Array.isArray(meta.enum)) prop.enum = [...meta.enum]
+    if (meta.default !== undefined) prop.default = meta.default
     properties[key] = prop
     if (meta.required) required.push(key)
   }
@@ -93,7 +95,8 @@ function toJsonSchema(spec) {
 }
 
 /**
- * 把 memory_search 关键词串拆成多个词（空白分隔，按或匹配）。
+ * 把 memory_search 关键词串拆成多个词（空白分隔）。
+ * 默认按词义组 AND；脚本 --any 时才放宽为 OR。
  * 纯函数，便于单测。
  * @param {string} keyword
  * @returns {string[]}
@@ -128,6 +131,15 @@ export function extractCheckpointSummary(text) {
   }
   const joined = parts.join(' ｜ ')
   return joined.length > 200 ? `${joined.slice(0, 200)}…` : joined
+}
+
+/** 记忆库检索脚本是否支持 v1.8 的 scope/any 选项。 */
+function supportsScopedSearch(script) {
+  try {
+    return readFileSync(script, 'utf-8').includes('OPT_SCOPE')
+  } catch {
+    return false
+  }
 }
 
 /** sessions/ 下最新一份 checkpoint 的绝对路径；无则 null。 */
@@ -208,11 +220,10 @@ export function apply(ctx, config = {}) {
 
       const text = [
         `dsh 记忆库存在：${memoryDir}（dsh-memory 插件）。`,
-        '涉及本工作区的任务，先读 PROTOCOL.md 与 MEMORY.md（索引按域分小节），需要时读对应 topics/<域>/MEMORY-<主题>.md；',
-        '可复用知识用 memory_add 落盘，topic 必须带域：dsh（dsh 自身机制）/ idc-ops（机房网络运维）/ projects（外部项目交付）/ knowledge（通用技术知识）；See 索引与计数自动维护；',
-        '会话结束按需写 sessions/ 下 checkpoint（Active intent / Next action / Discovered candidates / Errors / Live resources），收尾可调 memory_suggest 查看候选条目。',
+        '按需使用：仅在任务需要复用既往结论、规则或环境事实时调 memory_search；不要为普通任务预读 MEMORY.md 或 PROTOCOL.md。',
+        'memory_search 默认只查本地知识层、多词严格匹配；需要他机参考层时用 scope=reference/all，需要放宽时用 any=true。',
+        '产生可复用知识用 memory_add 落盘，topic 必须带域：dsh / idc-ops / projects / knowledge；会话收尾可写 checkpoint 或用 memory_suggest 查看候选。',
         '静默原则：记忆操作（检索/落盘/备份）一律静默进行，不向用户播报；仅当用户主动问起，或落盘的是影响后续行为的新规则时，才一句话带过。',
-        '可用工具：memory_add（落盘，推荐写入口）、memory_search（检索）、memory_suggest（查看 checkpoint 候选条目）、memory_sync（git 备份）。',
       ].join(' ')
 
       // 护栏（PROTOCOL §7）：checkpoint 摘要注入默认关闭，开启后只带两节、200 字上限
@@ -243,30 +254,58 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register({
     name: 'memory_search',
-    description: '在 dsh 记忆库中按关键词检索已落盘知识（排除会话日志）。需要确认既往结论、规则、环境事实时先调用；结果含文件路径，可再读原文。归档主题（已了结故障/历史结论）默认隐藏，需要时置 all=true。',
+    description: '在 dsh 记忆库中检索已落盘知识（排除会话日志）。默认只查本地知识层、多词严格 AND，并限制输出量；结果含文件路径，可再读原文。需要他机参考层时 scope=reference/all；需要放宽多词为 OR 时 any=true；归档主题默认隐藏，需要时 all=true。',
     parameters: toJsonSchema({
-      keyword: { type: 'string', required: true, description: '搜索关键词（多个词用空格分隔，按或匹配）' },
-      all: { type: 'boolean', description: '是否包含归档主题（默认 false；查已了结故障、历史结论时打开）' },
+      keyword: { type: 'string', required: true, description: '搜索关键词（多个词用空格分隔；默认每个词都必须命中，同义词按词扩展）' },
+      scope: {
+        type: 'string',
+        enum: ['local', 'reference', 'all'],
+        default: 'local',
+        description: '检索范围：local 仅本地主题（默认）；reference 仅他机参考层；all 两者都查',
+      },
+      any: { type: 'boolean', default: false, description: '多关键词是否放宽为 OR（默认 false，严格 AND）' },
+      all: { type: 'boolean', default: false, description: '是否包含归档主题（默认 false；查已了结故障、历史结论时打开）' },
     }),
     output: textOutput(),
     async execute(args, exec) {
       const keywords = parseKeywords(args.keyword)
       if (keywords.length === 0) {
-        return { text: 'memory_search: 缺少关键词。用法：memory_search "关键词1 关键词2"（多词按或匹配）' }
+        return { text: 'memory_search: 缺少关键词。用法：memory_search "关键词1 关键词2"（默认多词严格匹配）' }
+      }
+      if (args.scope !== undefined && !['local', 'reference', 'all'].includes(args.scope)) {
+        return { text: 'memory_search: scope 仅支持 local / reference / all。' }
       }
       const memoryDir = memoryDirFor(exec?.agent?.session)
       const script = join(memoryDir, 'scripts', 'memory_search.sh')
       if (!existsSync(script)) {
         return { text: `memory_search: 脚本不存在 ${script}${MISSING_SCRIPTS_HINT}` }
       }
+      const scoped = supportsScopedSearch(script)
+      if (!scoped && (args.scope !== undefined || args.any === true)) {
+        return { text: `memory_search: 记忆库检索脚本为旧版，不支持 scope/any：${script}。`
+          + '请先把记忆库 scripts/memory_search.sh 同步到 v1.8（插件 runtime/ 已带新版）。' }
+      }
       try {
-        // v1.6.1：all=true → 透传 --all（脚本要求选项在关键词之前）；修「归档主题经工具检索不到」
-        const extra = args.all === true ? ['--all'] : []
-        const { stdout } = await run('bash', [script, ...extra, ...keywords], { timeout: config.searchTimeoutMs ?? 15000 })
-        return { text: stdout || '无命中。' }
+        // 选项必须位于关键词之前。旧版脚本不支持 scope/any，因此只在检测到新版时透传。
+        const extra = []
+        if (scoped) extra.push('--scope', args.scope ?? 'local')
+        if (scoped && args.any === true) extra.push('--any')
+        if (args.all === true) extra.push('--all')
+        const { stdout } = await run('bash', [script, ...extra, ...keywords], { timeout: config.searchTimeoutMs ?? 30000 })
+        let text = stdout || '无命中。'
+        if (!scoped) {
+          text += '\n（⚠ 记忆库检索脚本为旧版：默认 local / 严格匹配 / 输出预算未生效；请同步 scripts/memory_search.sh）'
+        }
+        return { text }
       } catch (error) {
-        const detail = error && (error.stdout || error.stderr || error.message)
-        return { text: `memory_search 失败：${String(detail || error).trim()}` }
+        const stdout = String(error?.stdout ?? '').trim()
+        const timedOut = error?.killed === true || error?.signal === 'SIGTERM'
+        const detail = String(error?.stderr || error?.message || error).trim()
+        if (stdout) {
+          // 超时也可能已有完整结果；保留结果并明确说明，不再笼统标成“失败”。
+          return { text: `${timedOut ? 'memory_search 超时，已保留部分结果：' : 'memory_search 失败：'}${stdout}${detail ? `\n${detail}` : ''}` }
+        }
+        return { text: `memory_search ${timedOut ? '超时' : '失败'}：${detail}` }
       }
     },
   })

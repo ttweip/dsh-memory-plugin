@@ -1,7 +1,8 @@
-# dsh 记忆协议 v1.3（PROTOCOL）
+# dsh 记忆协议 v1.4（PROTOCOL）
 
 > 本文件是 dsh（DeepSeek Harness）会话的**记忆读写规范**。
-> 任何 dsh 会话开始工作前，先读本协议 + `MEMORY.md` 索引；结束前按协议落盘。
+> **默认不预读**本协议或 `MEMORY.md`；只在任务需要既往结论、规则或环境事实时按需检索，结束前按需落盘。
+> v1.4（2026-10-18）：检索惰性加载——会话提示不再要求预读；`memory_search` 默认只查本地知识层、多词严格 AND、输出有硬预算；他机 reference 层需显式 `scope`。
 > v1.3（2026-09-22）：主题**按域分组**——`topics/<域>/MEMORY-<主题>.md`，域固定 `dsh` / `idc-ops` / `projects` / `knowledge`；`memory_add` 域感知（See 行自动插进 MEMORY.md 对应 `### <域>` 小节）；存量 34 个主题已迁移，根目录平铺写法仅作历史兼容。
 > v1.2（2026-09-05）：主题文件支持 `topics/<域>/` 子目录；新增 `memory_suggest` 候选提示；发布流程脚本化（scripts/release.sh + release_checklist.md）。
 > v1.1（2026-09-02）：新增推荐写入口 `memory_add`（自动维护索引计数）；新增防泄漏 pre-commit hook。
@@ -33,11 +34,15 @@
 
 定位方式（插件 v1.1）：`config.memoryDir` > 环境变量 `DSH_MEMORY_DIR` > 从会话 cwd 向上查找 `.dsh-memory/`（含 MEMORY.md 即命中）> 兜底 `/mnt/smb/.dsh-memory`。所有脚本用 `dirname $0` 相对定位，记忆库整体搬迁无需改任何路径。
 
-## 1. 会话开始（读）
+## 1. 会话开始（默认不读，按需检索）
 
-1. 读 `PROTOCOL.md`（本文件）
-2. 读 `MEMORY.md` 索引（按域分小节），浏览有哪些主题
-3. 任务涉及的主题 → 读对应 `topics/<域>/MEMORY-<主题>.md`
+**默认不预读。** 只有任务确实需要复用既往结论、用户规则或环境事实时：
+
+1. 先 `memory_search`（默认 strict AND + 本地层；必要时 `any=true` 放宽，`scope=all/reference` 查他机参考层）
+2. 需要浏览全部主题时再读 `MEMORY.md` 索引；不要为了“熟悉记忆”通读
+3. 命中后按输出路径读对应 `topics/<域>/MEMORY-<主题>.md` 原文，只读相关段落
+
+> 记忆检索是“按需取用”，不是每会话的固定开场动作。
 
 ## 2. 会话中（写）
 
@@ -111,11 +116,12 @@
 
 **总原则：记忆库内容不自动进会话上下文，除非模型按需检索。**
 
-1. **会话引导提示**：每会话仅注入一次「存在性提示」（记忆库路径 + 协议要点 + 工具清单，约 230 字）。**不注入** MEMORY.md 正文、主题条目、checkpoint 内容
+1. **会话引导提示**：每会话仅注入一次轻量「存在性提示」（记忆库路径 + 按需检索 + 静默原则）。**不要求预读 PROTOCOL/MEMORY 正文，不注入** MEMORY.md、主题条目、checkpoint 内容
 2. **注入时机**：首次工具调用后注入一次；纯闲聊会话（无工具调用）不注入；resume 时历史已有该提示则不重复
-3. **记忆内容进入上下文的唯一方式**：模型主动调用 `memory_search` 按需检索
-4. **未来若支持「checkpoint 摘要注入」**（v1.4 计划，默认关闭 `config.injectRecentCheckpoint=false`，按工作区显式开启）必须满足：
+3. **记忆内容进入上下文的唯一方式**：模型按需调用 `memory_search`。默认只查本地知识层的 `MEMORY-*.md` 主题、多词严格 AND，并限制为 3 文件 / 每文件 3 行 / 全局 20 行
+4. **参考层隔离**：`reference/`（他机知识）默认不参与检索；必须显式 `scope=reference` 或 `scope=all`
+5. **checkpoint 摘要注入**（默认关闭 `config.injectRecentCheckpoint=false`，按工作区显式开启）必须满足：
    - 只注入最近一份 checkpoint 的 Active intent / Next action **两行**
    - 硬上限 200 字，超出截断；不注入 Current work 等详情
-5. **提示去重**：协议细节归插件提示，AGENTS.md / instruction-hint 只留指针，避免每会话双份注入
-6. **登记制**：任何新增的自动注入类功能，必须在本节登记（注入什么 / 何时 / 上限），未登记按「不注入」处理
+6. **提示去重**：协议细节归插件提示，AGENTS.md / instruction-hint 只留指针，避免每会话双份注入
+7. **登记制**：任何新增的自动注入类功能，必须在本节登记（注入什么 / 何时 / 上限），未登记按「不注入」处理

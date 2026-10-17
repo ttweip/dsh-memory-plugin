@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # dsh 记忆系统自检套件（v1.4.1 起）：把各脚本的边界/回归用例固化，防再犯。
 # 用法: bash scripts/selfcheck.sh   退出码 0=全过 1=有失败
-# 覆盖: memory_search(H2/M1/M2/L5/L6/同义词/转义) / memory_add(M4/A8/查重/resync)
-#       audit(M3/L3) / memory_sync(H1 剥离正则) / 各脚本语法
+# 覆盖: memory_search(H2/M1/M2/L5/L6/同义词/转义/scope/AND/预算/元文件隔离)
+#       memory_add(M4/A8/查重/resync) / audit(M3/L3/URL 占位符) /
+#       memory_sync(H1 剥离正则) / 各脚本语法
 set -u
 
 # ── 环境守卫（可移植性）───────────────────────────────────────────────
@@ -85,6 +86,46 @@ cat > "$FM/MEMORY-报告体.md" <<'EOF'
 完毕
 EOF
 printf '# MEMORY-报告体.md (2 entries)' >> "$FM/MEMORY.md" 2>/dev/null || true
+
+# v1.8 检索范围/严格模式/预算测试素材
+cat > "$FM/MEMORY-组合.md" <<'EOF'
+# MEMORY-组合.md
+- **组合词条（2026-08-06）**：alpha beta 同时出现
+EOF
+cat > "$FM/MEMORY-alpha单.md" <<'EOF'
+# MEMORY-alpha单.md
+- **alpha 单条（2026-08-06）**：alpha 单独出现
+EOF
+cat > "$FM/MEMORY-beta单.md" <<'EOF'
+# MEMORY-beta单.md
+- **beta 单条（2026-08-06）**：beta 单独出现
+EOF
+mkdir -p "$FM/reference/128/topics"
+cat > "$FM/reference/128/topics/MEMORY-他机.md" <<'EOF'
+# MEMORY-他机.md
+- **参考层（2026-08-06）**：参考层独有 层级独有
+EOF
+cat > "$FM/MEMORY-本地.md" <<'EOF'
+# MEMORY-本地.md
+- **本地层（2026-08-06）**：本地层独有 层级独有
+EOF
+cat > "$FM/PROTOCOL.md" <<'EOF'
+# 协议
+协议元文件独有
+EOF
+printf '\n索元文件独有\n' >> "$FM/MEMORY.md"
+printf '%s\n' '- **脚本独有（2026-08-06）**：脚本独有' > "$FM/scripts/extra.sh"
+for i in 1 2 3 4; do
+  printf '# MEMORY-预算%s.md\n- **预算标题（2026-08-06）**：预算命中\n' "$i" > "$FM/MEMORY-预算$i.md"
+done
+cat > "$FM/MEMORY-多行.md" <<'EOF'
+# MEMORY-多行.md
+- **多行1（2026-08-06）**：多行词
+- **多行2（2026-08-06）**：多行词
+- **多行3（2026-08-06）**：多行词
+- **多行4（2026-08-06）**：多行词
+- **多行5（2026-08-06）**：多行词
+EOF
 S() { bash "$FM/scripts/memory_search.sh" "$@"; }
 
 stderr_empty=$(S 卡死 2>&1 >/dev/null)
@@ -102,7 +143,11 @@ n=$(echo "$out" | grep -c '^  [0-9]')
 [ "$n" -gt 0 ] && ok "M2: 归档段有明细（$n 行）" || bad "M2: 归档段被挤空"
 
 out=$(S 防火墙 --all 2>/dev/null)
-echo "$out" | grep -q "MEMORY-活跃主题" && ok "M1: 第二参数 --all 按字面关键词搜索" || bad "M1: --all 被误吞"
+if echo "$out" | grep -q "防火墙 --all" && ! echo "$out" | grep -q "归档记忆"; then
+  ok "M1: 第二参数 --all 按字面关键词搜索（未被吞成选项）"
+else
+  bad "M1: --all 被误吞或查询头异常→$out"
+fi
 
 out=$(S --include-scripts 卡死 2>/dev/null)
 if echo "$out" | grep -q "工具脚本命中"; then bad "L6: --include-scripts 未生效（仍降级段）"
@@ -113,7 +158,53 @@ out=$(S Archived 2>/dev/null)
 echo "$out" | grep -q "MEMORY-活跃主题.md" && ok "L5: 正文 Archived 不误判归档" || bad "L5: 活跃主题被误归档"
 
 out=$(S '[.*' 2>/dev/null)
-[ -n "$out" ] && ok "正则元字符关键词不崩溃" || bad "元字符关键词输出异常"
+[ -n "$out" ] && ok "正则元字符关键词不崩溃" || bad "正则元字符关键词输出异常"
+
+# v1.8：默认本地层；reference 显式开启
+out=$(S 层级独有 2>/dev/null)
+echo "$out" | grep -q "MEMORY-本地.md" && ! echo "$out" | grep -q "reference/128" \
+  && ok "v1.8: 默认 local 命中本地层且不扫 reference" || bad "v1.8: 默认 local 范围异常→$out"
+out=$(S 参考层独有 2>/dev/null)
+! echo "$out" | grep -q "reference/128" \
+  && ok "v1.8: 默认 local 不返回 reference/128" || bad "v1.8: reference 被默认加载→$out"
+out=$(S --scope reference 参考层独有 2>/dev/null)
+echo "$out" | grep -q "reference/128/topics/MEMORY-他机.md" && ! echo "$out" | grep -q "MEMORY-本地.md" \
+  && ok "v1.8: scope=reference 仅返回参考层" || bad "v1.8: scope=reference 范围异常→$out"
+out=$(S --scope all 层级独有 2>/dev/null)
+echo "$out" | grep -q "MEMORY-本地.md" && echo "$out" | grep -q "reference/128/topics/MEMORY-他机.md" \
+  && ok "v1.8: scope=all 同时返回两层" || bad "v1.8: scope=all 范围异常→$out"
+
+# v1.8：多词严格 AND；--any 才放宽为 OR
+out=$(S alpha beta 2>/dev/null)
+echo "$out" | grep -q "MEMORY-组合.md" && ! echo "$out" | grep -q "MEMORY-alpha单.md" \
+  && ! echo "$out" | grep -q "MEMORY-beta单.md" \
+  && ok "v1.8: 多词默认严格 AND" || bad "v1.8: 严格 AND 失效→$out"
+out=$(S --any alpha beta 2>/dev/null)
+echo "$out" | grep -q "MEMORY-组合.md" && echo "$out" | grep -q "MEMORY-alpha单.md" \
+  && echo "$out" | grep -q "MEMORY-beta单.md" \
+  && ok "v1.8: --any 放宽为 OR" || bad "v1.8: --any 失效→$out"
+
+# v1.8：元文件与脚本默认不参与；脚本需 --include-scripts
+out=$(S 元文件独有 2>/dev/null)
+! echo "$out" | grep -q "MEMORY.md" && ok "v1.8: MEMORY.md 默认不返回" || bad "v1.8: MEMORY.md 被返回→$out"
+out=$(S 协议元文件独有 2>/dev/null)
+! echo "$out" | grep -q "PROTOCOL.md" && ok "v1.8: PROTOCOL.md 默认不返回" || bad "v1.8: PROTOCOL.md 被返回→$out"
+out=$(S 脚本独有 2>/dev/null)
+! echo "$out" | grep -q "scripts/extra.sh" && ok "v1.8: scripts 默认不返回" || bad "v1.8: scripts 被默认返回→$out"
+out=$(S --include-scripts 脚本独有 2>/dev/null)
+echo "$out" | grep -q "scripts/extra.sh" && ! echo "$out" | grep -q "工具脚本命中" \
+  && ok "v1.8: --include-scripts 并入主排序" || bad "v1.8: include-scripts 异常→$out"
+
+# v1.8：默认输出预算
+out=$(S 预算命中 2>/dev/null)
+echo "$out" | grep -q "还有 1 个文件未列出" \
+  && ok "v1.8: 默认 MAX_FILES=3 生效" || bad "v1.8: 默认文件预算失效→$out"
+out=$(S 多行词 2>/dev/null)
+echo "$out" | grep -q "该文件还有" \
+  && ok "v1.8: 默认 MAX_PER_FILE=3 生效" || bad "v1.8: 默认行预算失效→$out"
+out=$(S --scope bad 层级独有 2>&1 || true)
+echo "$out" | grep -q "仅支持 local|reference|all" \
+  && ok "v1.8: 非法 scope 明确报错" || bad "v1.8: 非法 scope 未报错→$out"
 
 echo "═══════ 2. memory_add.py（假库）═══════"
 AM="$(mktemp -d)"; mkdir -p "$AM/scripts"
@@ -248,6 +339,16 @@ printf 'pass = ChangeMe_12345\n' > "$AU/t.md"
 bash scripts/audit_secrets.sh "$AU" 2>&1 | grep -q "干净" && ok "AU4: ChangeMe_ 豁免" || bad "AU4: 误报"
 printf 'bin\x00ary content\n' > "$AU/b.md"
 bash scripts/audit_secrets.sh "$AU" 2>&1 | grep -q "干净" && ok "AU5: 二进制跳过不误报" || bad "AU5: 二进制误报"
+printf 'url = http://deploy:TOKEN@192.168.0.145/x.git\n' > "$AU/t.md"
+bash scripts/audit_secrets.sh "$AU" 2>&1 | grep -q "干净" && ok "AU6: URL 密码位 TOKEN 豁免" || bad "AU6: TOKEN 误报"
+printf 'url = http://deploy:ChangeMe_12345@192.168.0.145/x.git\n' > "$AU/t.md"
+bash scripts/audit_secrets.sh "$AU" 2>&1 | grep -q "干净" && ok "AU7: URL 密码位 ChangeMe_* 豁免" || bad "AU7: ChangeMe_* 误报"
+printf 'url = http://deploy:${DSH_GITLAB_PAT}@192.168.0.145/x.git\n' > "$AU/t.md"
+bash scripts/audit_secrets.sh "$AU" 2>&1 | grep -q "干净" && ok "AU8: URL 密码位 \${VAR} 豁免" || bad "AU8: \${VAR} 误报"
+real_pw="real""Secret123"
+real_url="http://deploy:""$real_pw""@192.168.0.145/x.git"
+printf 'url = %s\n' "$real_url" > "$AU/t.md"
+bash scripts/audit_secrets.sh "$AU" 2>&1 | grep -q "URL 内嵌密码" && ok "AU9: URL 真实密码仍拦截" || bad "AU9: 真实密码漏拦"
 rm -rf "$AU"
 
 echo "═══════ 7. memory_search.sh 补充边界 ═══════"

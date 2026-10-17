@@ -48,6 +48,10 @@ test('工具注册：memory_search / memory_add / memory_suggest / memory_sync /
   for (const name of ['memory_search', 'memory_add', 'memory_suggest', 'memory_sync', 'memory_init']) {
     assert.ok(ctx._tools[name], `缺工具 ${name}`)
   }
+  const search = ctx._tools.memory_search
+  assert.deepEqual(search.parameters.properties.scope.enum, ['local', 'reference', 'all'])
+  assert.equal(search.parameters.properties.scope.default, 'local')
+  assert.equal(search.parameters.properties.any.default, false)
 })
 
 test('hint：首次 tool/call 后注入一次；无 tool/call 不注入', async () => {
@@ -63,7 +67,10 @@ test('hint：首次 tool/call 后注入一次；无 tool/call 不注入', async 
     emitToolCall(ctx, session)
     d = await runPreStep(ctx, session)
     assert.equal(d.messages.length, 1)
-    assert.ok(d.messages[0].content[0].text.includes('dsh 记忆库存在'))
+    const hint = d.messages[0].content[0].text
+    assert.ok(hint.includes('dsh 记忆库存在'))
+    assert.ok(hint.includes('按需使用'))
+    assert.ok(!hint.includes('先读 PROTOCOL.md 与 MEMORY.md'))
     // 同会话第二次 → 不重复
     d = await runPreStep(ctx, session)
     assert.equal(d.messages.length, 0)
@@ -190,6 +197,70 @@ test('memory_search：空关键词提示；脚本缺失报错', async () => {
     assert.ok(r1.text.includes('缺少关键词'))
     const r2 = await ctx._tools.memory_search.execute({ keyword: 'x' }, exec)
     assert.ok(r2.text.includes('脚本不存在'))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('memory_search：默认 local；scope/any/all 按正确顺序透传给脚本', async () => {
+  const { root, mem } = makeMem()
+  try {
+    mkdirSync(join(mem, 'scripts'), { recursive: true })
+    writeFileSync(join(mem, 'scripts', 'memory_search.sh'), '#!/usr/bin/env bash\n# OPT_SCOPE\nprintf "%s\\n" "$@"\n')
+    const ctx = fakeCtx()
+    apply(ctx, {})
+    const exec = { agent: { session: fakeSession(root) } }
+
+    const r1 = await ctx._tools.memory_search.execute({ keyword: '甲 乙' }, exec)
+    assert.equal(r1.text.trim().split('\n').join('|'), '--scope|local|甲|乙')
+
+    const r2 = await ctx._tools.memory_search.execute({
+      keyword: '甲 乙', scope: 'reference', any: true, all: true,
+    }, exec)
+    assert.equal(r2.text.trim().split('\n').join('|'), '--scope|reference|--any|--all|甲|乙')
+
+    const r3 = await ctx._tools.memory_search.execute({ keyword: 'x', scope: 'bad' }, exec)
+    assert.ok(r3.text.includes('scope 仅支持'))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('memory_search：旧版记忆库脚本兼容——默认可跑并提示，scope/any 明确拒绝', async () => {
+  const { root, mem } = makeMem()
+  try {
+    mkdirSync(join(mem, 'scripts'), { recursive: true })
+    writeFileSync(join(mem, 'scripts', 'memory_search.sh'), '#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n')
+    const ctx = fakeCtx()
+    apply(ctx, {})
+    const exec = { agent: { session: fakeSession(root) } }
+
+    const r1 = await ctx._tools.memory_search.execute({ keyword: '甲 乙' }, exec)
+    assert.equal(r1.text.split('\n')[0].trim(), '甲')
+    assert.ok(r1.text.includes('检索脚本为旧版'))
+
+    const r2 = await ctx._tools.memory_search.execute({ keyword: '甲', scope: 'reference' }, exec)
+    assert.ok(r2.text.includes('不支持 scope/any'))
+    const r3 = await ctx._tools.memory_search.execute({ keyword: '甲', any: true }, exec)
+    assert.ok(r3.text.includes('不支持 scope/any'))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('memory_search：非零退出保留部分输出；超时明确标注', async () => {
+  const { root, mem } = makeMem()
+  try {
+    mkdirSync(join(mem, 'scripts'), { recursive: true })
+    const script = join(mem, 'scripts', 'memory_search.sh')
+    const ctx = fakeCtx()
+    apply(ctx, { searchTimeoutMs: 100 })
+    const exec = { agent: { session: fakeSession(root) } }
+
+    // 非零退出：已输出的内容必须保留（此路径稳定可断言）。
+    writeFileSync(script, '#!/usr/bin/env bash\n# OPT_SCOPE\nprintf "partial-result\\n"\nexit 1\n')
+    const r1 = await ctx._tools.memory_search.execute({ keyword: 'x' }, exec)
+    assert.ok(r1.text.includes('失败'), r1.text)
+    assert.ok(r1.text.includes('partial-result'), r1.text)
+
+    // 超时：只断言明确标注，避免 stdout 事件与 kill 的时序导致偶发失败。
+    writeFileSync(script, '#!/usr/bin/env bash\n# OPT_SCOPE\nexec sleep 5\n')
+    const r2 = await ctx._tools.memory_search.execute({ keyword: 'x' }, exec)
+    assert.ok(r2.text.includes('超时'), r2.text)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

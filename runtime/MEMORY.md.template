@@ -6,6 +6,7 @@ _索引式：详情在 `topics/<域>/MEMORY-<主题>.md`，本文件只留一行
 
 ## Rules
 - 用户使用中文交流，dsh 回复使用中文
+- 记忆按需检索：不预读整个记忆库；`memory_search` 默认只查本地知识层，他机 reference 层需显式 `scope=reference/all`
 - 记忆落盘用索引式：详情进 `topics/<域>/MEMORY-<主题>.md`，MEMORY.md 只加一行 See 索引
 - 记忆备份 merge 不 force-push（会删他人提交）；commit 身份 dsh-memory/memory@dsh.local
 - token/密码/私钥明文不入记忆（只记获取渠道）

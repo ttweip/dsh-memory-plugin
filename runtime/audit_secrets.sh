@@ -66,7 +66,11 @@ for no, line in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
         for m in pat.finditer(line):
             hit = m.group(0)
             if name == "URL 内嵌密码":
-                pw = hit.split(":", 1)[1].rsplit("@", 1)[0] if ":" in hit else ""
+                # 先取 scheme 之后的 userinfo，再取冒号后的密码位。
+                # 旧实现 split(":", 1) 会切到 scheme 的冒号（http://...），
+                # 导致 TOKEN / ChangeMe_* 等占位符豁免失效。
+                userinfo = hit.split("://", 1)[1].rsplit("@", 1)[0] if "://" in hit else ""
+                pw = userinfo.split(":", 1)[1] if ":" in userinfo else ""
                 # 豁免占位符/示例值
                 if re.search(r"[<$\*{}]", pw) or pw.startswith("ChangeMe_") or pw in ("PAT", "TOKEN", "xxx", "password"):
                     continue
@@ -143,7 +147,7 @@ self_test() {
     else echo "  ✅ 已拦截"; grep -v '^==' "$d/out1" | head -2; fi
     git reset -q
     echo "测试2: 占位符不应误报"
-    printf 'url = http://deploy:<PAT>@192.168.0.145/x.git\nurl2 = http://oauth2:${DSH_GITLAB_PAT}@h/x.git\n' > ok.txt
+    printf 'url = http://deploy:<PAT>@192.168.0.145/x.git\nurl2 = http://oauth2:${DSH_GITLAB_PAT}@h/x.git\nurl3 = http://deploy:TOKEN@192.168.0.145/x.git\nurl4 = http://deploy:ChangeMe_12345@192.168.0.145/x.git\n' > ok.txt
     git add ok.txt
     if "$SELF" > "$d/out2" 2>&1; then echo "  ✅ 占位符未误报"
     else echo "  ❌ 占位符被误报"; cat "$d/out2"; exit 1; fi
