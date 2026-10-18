@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Versions
+        run: |
+          node --version
+          python3 --version
+          git --version
+      - name: Unit + integration tests
+        run: npm test
+      - name: Runtime selfcheck (UTF-8 + C locale)
+        run: |
+          ws="$(mktemp -d)/ws"
+          bash install.sh init "$ws"
+          cd "$ws/.dsh-memory"
+          bash scripts/selfcheck.sh
+          env -u LANG -u LC_CTYPE LC_ALL=C bash scripts/selfcheck.sh

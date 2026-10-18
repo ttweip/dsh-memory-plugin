@@ -1,0 +1,22 @@
+stages:
+  - test
+
+default:
+  image: node:20-bookworm
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq python3 git >/dev/null
+    - node --version
+    - python3 --version
+    - bash --version | head -1
+
+test:
+  stage: test
+  timeout: 20m
+  script:
+    - npm test
+    - ws="$(mktemp -d)/ws"
+    - bash install.sh init "$ws"
+    - cd "$ws/.dsh-memory"
+    - bash scripts/selfcheck.sh
+    - env -u LANG -u LC_CTYPE LC_ALL=C bash scripts/selfcheck.sh

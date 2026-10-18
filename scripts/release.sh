@@ -24,6 +24,8 @@ echo "== 1) 本地校验 =="
 node --check index.mjs
 npm test >/dev/null 2>&1 || { echo "❌ npm test 未通过" >&2; exit 1; }
 bash -n install.sh
+bash -n runtime/memory_search.sh
+python3 -m py_compile runtime/memory_search.py runtime/memory_get.py
 grep -q "\"version\": \"$VERSION_NOV\"" package.json || { echo "❌ package.json 版本不是 $VERSION_NOV" >&2; exit 1; }
 echo "✓ 校验通过（npm test 全绿）"
 
@@ -53,7 +55,7 @@ cp "$PLUGIN_DIR"/index.mjs "$PLUGIN_DIR"/package.json "$PLUGIN_DIR"/README.md \
 [ -d "$PLUGIN_DIR/runtime" ] || { echo "❌ 缺 $PLUGIN_DIR/runtime（新环境 init 将落下旧脚本）" >&2; exit 1; }
 rm -rf runtime; cp -r "$PLUGIN_DIR/runtime" runtime
 # 校验：runtime 关键脚本必须存在且与插件目录逐字节一致（防漏拷/半拷）
-for _f in memory_search.sh memory_sync.sh audit_secrets.sh selfcheck.sh memory_add.py memory_suggest.py synonyms.tsv PROTOCOL.md; do
+for _f in memory_search.sh memory_search.py memory_get.py memory_sync.sh audit_secrets.sh selfcheck.sh memory_add.py memory_suggest.py synonyms.tsv PROTOCOL.md; do
   [ -f "runtime/$_f" ] || { echo "❌ runtime/$_f 缺失" >&2; exit 1; }
   cmp -s "$PLUGIN_DIR/runtime/$_f" "runtime/$_f" || { echo "❌ runtime/$_f 与插件目录不一致" >&2; exit 1; }
 done

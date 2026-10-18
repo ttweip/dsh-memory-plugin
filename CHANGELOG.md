@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.9.0（2026-10-18，单进程检索 / 条目化预算 / memory_get / CI）
+
+### 性能
+- **`memory_search` 改为 Python 单进程内核**：新增 `memory_search.py`，`memory_search.sh` 保留为兼容 wrapper。一次遍历完成范围过滤、归档判断、匹配、评分与排序，不再对每个文件启动多次 `grep`/`stat`。
+- 本机真实库实测：默认 local 与 all 查询均约 **0.4s**（旧 bash 版 local 约 4–8s、all 约 12–17s）；输出约 **1.6–1.9KB**。
+
+### 检索质量与上下文预算
+- **条目级聚合**：以 `- **标题**：正文` 为结果单元，按“命中词义组数 → 行号”排序；多词文件内优先展示同时命中多组的条目。
+- **输出硬预算**：默认 3 文件 / 每文件 3 条 / 全局 20 条 / 约 2000 bytes；新增 `MEMORY_SEARCH_MAX_BYTES` 与 `MEMORY_SEARCH_ENTRY_WIDTH`。
+- 超长条目按字符截断，最终按 UTF-8 字节截断，确保输出不超预算。
+- 结果带 `L行号`，可直接作为 `memory_get --offset` 使用。
+
+### 新增工具
+- **`memory_get`**：只允许读取记忆库内 `MEMORY-*.md` 主题文件；支持 `path` / `section` / `offset` / `limit` / 字节预算。默认 60 行、约 6KB，阻止整篇加载与路径穿越。
+- 插件 config 新增 `getTimeoutMs`（默认 15000）与 `getMaxBytes`（默认 6000）。
+
+### 分发与 CI
+- `runtime/`、`install.sh init`、`install.sh sync-runtime`、`release.sh` 均纳入 `memory_search.py` / `memory_get.py`。
+- 新增 GitLab CI 与 GitHub Actions：npm 单测 + 新库 selfcheck（UTF-8/C locale）；本地 bare remote 的 update 端到端测试已包含在 npm test 中。
+- `runtime/MEMORY.md.template`、README、PROTOCOL v1.5 同步更新。
+
+### 测试
+- `npm test`：41/41 通过。
+- 记忆库 `selfcheck.sh`：85/85 通过（含 memory_get 的 section/offset/limit/越界/非主题文件、字节预算、条目排序）。
+
 ## v1.8.2（2026-10-18，install.sh update 重执行参数修复）
 
 ### 修复

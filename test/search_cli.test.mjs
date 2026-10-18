@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 const runAsync = promisify(execFile)
 const PLUGIN_DIR = dirname(dirname(fileURLToPath(import.meta.url)))
 const SEARCH_SRC = join(PLUGIN_DIR, 'runtime', 'memory_search.sh')
+const SEARCH_PY_SRC = join(PLUGIN_DIR, 'runtime', 'memory_search.py')
 const SYN_SRC = join(PLUGIN_DIR, 'runtime', 'synonyms.tsv')
 
 /** 建一个最小记忆库，并复制实际检索脚本。 */
@@ -19,6 +20,7 @@ function makeLibrary() {
   mkdirSync(join(lib, 'scripts'), { recursive: true })
   mkdirSync(join(lib, 'topics', 'dsh'), { recursive: true })
   writeFileSync(join(lib, 'scripts', 'memory_search.sh'), readFileSync(SEARCH_SRC))
+  writeFileSync(join(lib, 'scripts', 'memory_search.py'), readFileSync(SEARCH_PY_SRC))
   writeFileSync(join(lib, 'scripts', 'synonyms.tsv'), readFileSync(SYN_SRC))
   writeFileSync(join(lib, 'MEMORY.md'), '# index\n索元文件独有\n')
   writeFileSync(join(lib, 'PROTOCOL.md'), '# protocol\n协议元文件独有\n')
@@ -102,6 +104,7 @@ test('search CLI：默认严格 AND，--any 才 OR', async () => {
 
     const strict = await run(lib, ['alpha', 'beta'])
     assert.match(strict.stdout, /MEMORY-combo\.md/)
+    assert.match(strict.stdout, /命中 2 组/)
     assert.doesNotMatch(strict.stdout, /MEMORY-alpha\.md/)
     assert.doesNotMatch(strict.stdout, /MEMORY-beta\.md/)
 
@@ -134,6 +137,23 @@ test('search CLI：默认文件/行预算与可调预算', async () => {
       MEMORY_SEARCH_MAX_LINES: '4',
     })
     assert.ok((capped.stdout.match(/^\[\d+\/\d+\] /gm) || []).length <= 4, capped.stdout)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('search CLI：字节预算与 --version', async () => {
+  const { root, lib } = makeLibrary()
+  try {
+    const long = '长'.repeat(500)
+    for (let i = 1; i <= 5; i += 1) {
+      writeTopic(lib, `topics/dsh/MEMORY-bytes${i}.md`, `# b${i}\n- **字节预算**：${long}\n`)
+    }
+    const capped = await run(lib, ['字节预算'], { MEMORY_SEARCH_MAX_BYTES: '800' })
+    assert.ok(Buffer.byteLength(capped.stdout, 'utf8') <= 800, capped.stdout)
+    assert.match(capped.stdout, /预算，已截断/)
+
+    const version = await run(lib, ['--version'])
+    assert.equal(version.code, 0)
+    assert.match(version.stdout, /1\.9\.0/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

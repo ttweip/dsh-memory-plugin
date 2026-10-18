@@ -8,6 +8,7 @@
  *  2. memory_search：按关键词检索记忆库（调 .dsh-memory/scripts/memory_search.sh）。
  *     默认仅本地知识层、多词严格 AND（同义词按词扩展）；reference 参考层需
  *     scope=reference/all；any=true 才放宽为 OR。默认输出有硬预算。
+ *     memory_get：按 path/section/offset 精准读取主题片段，避免整篇加载。
  *  3. memory_add（v1.2.0）：索引式落盘推荐写入口——条目进 MEMORY-<topic>.md，
  *     MEMORY.md 的 See 索引计数自动维护（调 scripts/memory_add.py）。
  *  4. memory_sync：git 提交并推送备份（merge 不 force-push，调 memory_sync.sh）。
@@ -18,7 +19,8 @@
  *
  * 配置项（config）：memoryDir / injectHint（默认 true）/ initHint（默认 true，
  *     无记忆库时提示如何初始化）/ searchTimeoutMs（默认 30000）/
- *     addTimeoutMs（默认 15000）/ syncTimeoutMs（默认 120000）/ initTimeoutMs（默认 60000）
+ *     addTimeoutMs（默认 15000）/ getTimeoutMs（默认 15000）/ getMaxBytes（默认 6000）/
+ *     syncTimeoutMs（默认 120000）/ initTimeoutMs（默认 60000）
  *
  * 记忆库定位（v1.2 隐藏目录规范）：
  *     config.memoryDir > 环境变量 DSH_MEMORY_DIR > 从会话 cwd 向上查找
@@ -221,7 +223,7 @@ export function apply(ctx, config = {}) {
       const text = [
         `dsh 记忆库存在：${memoryDir}（dsh-memory 插件）。`,
         '按需使用：仅在任务需要复用既往结论、规则或环境事实时调 memory_search；不要为普通任务预读 MEMORY.md 或 PROTOCOL.md。',
-        'memory_search 默认只查本地知识层、多词严格匹配；需要他机参考层时用 scope=reference/all，需要放宽时用 any=true。',
+        'memory_search 默认只查本地知识层、多词严格匹配；命中后用 memory_get 读取指定段落/行号，不要整篇读；他机参考层用 scope=reference/all，放宽用 any=true。',
         '产生可复用知识用 memory_add 落盘，topic 必须带域：dsh / idc-ops / projects / knowledge；会话收尾可写 checkpoint 或用 memory_suggest 查看候选。',
         '静默原则：记忆操作（检索/落盘/备份）一律静默进行，不向用户播报；仅当用户主动问起，或落盘的是影响后续行为的新规则时，才一句话带过。',
       ].join(' ')
@@ -254,7 +256,7 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register({
     name: 'memory_search',
-    description: '在 dsh 记忆库中检索已落盘知识（排除会话日志）。默认只查本地知识层、多词严格 AND，并限制输出量；结果含文件路径，可再读原文。需要他机参考层时 scope=reference/all；需要放宽多词为 OR 时 any=true；归档主题默认隐藏，需要时 all=true。',
+    description: '在 dsh 记忆库中检索已落盘知识（排除会话日志）。默认只查本地知识层、多词严格 AND，并按条目限制输出量；结果含相对路径和行号，命中后用 memory_get 精准读取。需要他机参考层时 scope=reference/all；需要放宽多词为 OR 时 any=true；归档主题默认隐藏，需要时 all=true。',
     parameters: toJsonSchema({
       keyword: { type: 'string', required: true, description: '搜索关键词（多个词用空格分隔；默认每个词都必须命中，同义词按词扩展）' },
       scope: {
@@ -306,6 +308,46 @@ export function apply(ctx, config = {}) {
           return { text: `${timedOut ? 'memory_search 超时，已保留部分结果：' : 'memory_search 失败：'}${stdout}${detail ? `\n${detail}` : ''}` }
         }
         return { text: `memory_search ${timedOut ? '超时' : '失败'}：${detail}` }
+      }
+    },
+  })
+
+  /* ── 2.5) memory_get：命中后的精准读取（v1.9.0）────────────────────── */
+
+  ctx.tools.register({
+    name: 'memory_get',
+    description: '读取 memory_search 命中的 MEMORY-*.md 主题片段（精准二段式读取）：只允许记忆库内主题文件，按 section/offset/limit 和字节预算返回，避免整篇加载。',
+    parameters: toJsonSchema({
+      path: { type: 'string', required: true, description: '相对记忆库根的路径，来自 memory_search 输出，如 topics/dsh/MEMORY-x.md' },
+      section: { type: 'string', description: '可选小节标题（子串匹配），限定在该小节内读取' },
+      offset: { type: 'number', description: '绝对起始行号（1 基，可用 memory_search 输出里的 L 行号）' },
+      limit: { type: 'number', default: 60, description: '最多读取行数（默认 60，最大 200）' },
+    }),
+    output: textOutput(),
+    async execute(args, exec) {
+      const pathArg = String(args.path ?? '').trim()
+      if (!pathArg) {
+        return { text: 'memory_get: 缺少 path。用法：memory_get {path, section?, offset?, limit?}' }
+      }
+      const memoryDir = memoryDirFor(exec?.agent?.session)
+      const script = join(memoryDir, 'scripts', 'memory_get.py')
+      if (!existsSync(script)) {
+        return { text: `memory_get: 脚本不存在 ${script}${MISSING_SCRIPTS_HINT}` }
+      }
+      const argv = [script, '--path', pathArg]
+      if (args.section) argv.push('--section', String(args.section))
+      if (Number.isInteger(args.offset) && args.offset > 0) argv.push('--offset', String(args.offset))
+      if (Number.isInteger(args.limit) && args.limit > 0) argv.push('--limit', String(Math.min(args.limit, 200)))
+      const maxBytes = Number.isInteger(config.getMaxBytes) && config.getMaxBytes > 0
+        ? Math.min(config.getMaxBytes, 20000)
+        : 6000
+      argv.push('--max-bytes', String(maxBytes))
+      try {
+        const { stdout } = await run('python3', argv, { timeout: config.getTimeoutMs ?? 15000 })
+        return { text: stdout || 'memory_get: 无内容。' }
+      } catch (error) {
+        const detail = error && (error.stdout || error.stderr || error.message)
+        return { text: `memory_get 失败：${String(detail || error).trim()}` }
       }
     },
   })

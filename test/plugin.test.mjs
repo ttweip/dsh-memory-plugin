@@ -45,7 +45,7 @@ function emitToolCall(ctx, session) {
 test('工具注册：memory_search / memory_add / memory_suggest / memory_sync / memory_init 齐全', () => {
   const ctx = fakeCtx()
   apply(ctx, {})
-  for (const name of ['memory_search', 'memory_add', 'memory_suggest', 'memory_sync', 'memory_init']) {
+  for (const name of ['memory_search', 'memory_get', 'memory_add', 'memory_suggest', 'memory_sync', 'memory_init']) {
     assert.ok(ctx._tools[name], `缺工具 ${name}`)
   }
   const search = ctx._tools.memory_search
@@ -248,7 +248,7 @@ test('memory_search：非零退出保留部分输出；超时明确标注', asyn
     mkdirSync(join(mem, 'scripts'), { recursive: true })
     const script = join(mem, 'scripts', 'memory_search.sh')
     const ctx = fakeCtx()
-    apply(ctx, { searchTimeoutMs: 100 })
+    apply(ctx, { searchTimeoutMs: 1000 })
     const exec = { agent: { session: fakeSession(root) } }
 
     // 非零退出：已输出的内容必须保留（此路径稳定可断言）。
@@ -257,10 +257,29 @@ test('memory_search：非零退出保留部分输出；超时明确标注', asyn
     assert.ok(r1.text.includes('失败'), r1.text)
     assert.ok(r1.text.includes('partial-result'), r1.text)
 
-    // 超时：只断言明确标注，避免 stdout 事件与 kill 的时序导致偶发失败。
+    // 超时：独立短超时 context；只断言明确标注，避免 stdout 事件与 kill 的时序导致偶发失败。
     writeFileSync(script, '#!/usr/bin/env bash\n# OPT_SCOPE\nexec sleep 5\n')
-    const r2 = await ctx._tools.memory_search.execute({ keyword: 'x' }, exec)
+    const ctxTimeout = fakeCtx()
+    apply(ctxTimeout, { searchTimeoutMs: 100 })
+    const r2 = await ctxTimeout._tools.memory_search.execute({ keyword: 'x' }, exec)
     assert.ok(r2.text.includes('超时'), r2.text)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('memory_get：路径/段落/行号/预算参数透传，缺 path 明确报错', async () => {
+  const { root, mem } = makeMem()
+  try {
+    mkdirSync(join(mem, 'scripts'), { recursive: true })
+    writeFileSync(join(mem, 'scripts', 'memory_get.py'), 'print("|".join(__import__("sys").argv[1:]))\n')
+    const ctx = fakeCtx()
+    apply(ctx, { getMaxBytes: 8000 })
+    const exec = { agent: { session: fakeSession(root) } }
+    const r = await ctx._tools.memory_get.execute({
+      path: 'topics/dsh/MEMORY-x.md', section: 'Rules', offset: 12, limit: 500,
+    }, exec)
+    assert.equal(r.text.trim(), '--path|topics/dsh/MEMORY-x.md|--section|Rules|--offset|12|--limit|200|--max-bytes|8000')
+    const bad = await ctx._tools.memory_get.execute({}, exec)
+    assert.ok(bad.text.includes('缺少 path'))
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
@@ -278,5 +297,7 @@ test('memory_add / memory_suggest / memory_sync：参数校验与脚本缺失报
     assert.ok(r3.text.includes('脚本不存在'))
     const r4 = await ctx._tools.memory_sync.execute({}, exec)
     assert.ok(r4.text.includes('脚本不存在'))
+    const r5 = await ctx._tools.memory_get.execute({ path: 'topics/dsh/MEMORY-x.md' }, exec)
+    assert.ok(r5.text.includes('脚本不存在'))
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

@@ -36,7 +36,8 @@ test('install.sh init：空库脚手架（模板/脚本/git/防泄漏钩子）+ 
     assert.ok(out.includes('记忆库就绪'), out)
     const mem = join(ws, '.dsh-memory')
     for (const f of ['MEMORY.md', 'PROTOCOL.md', '.gitignore',
-      'scripts/memory_add.py', 'scripts/memory_search.sh', 'scripts/memory_sync.sh',
+      'scripts/memory_add.py', 'scripts/memory_search.sh', 'scripts/memory_search.py',
+      'scripts/memory_get.py', 'scripts/memory_sync.sh',
       'scripts/memory_suggest.py', 'scripts/audit_secrets.sh', 'scripts/selfcheck.sh',
       'scripts/synonyms.tsv', '.git/hooks/pre-commit']) {
       assert.ok(existsSync(join(mem, f)), `缺 ${f}`)
@@ -109,8 +110,9 @@ test('install.sh update：本地远端全流程（旧档更新→重装 profile�
     // 构造一个本地“远端”：tag v9.9.9 的包版本改为 9.9.9，便于确认文件真的被更新。
     const seed = join(root, 'seed')
     copyPluginFiles(seed)
-    writeFileSync(join(seed, 'package.json'),
-      readFileSync(join(seed, 'package.json'), 'utf8').replace('"version": "1.8.2"', '"version": "9.9.9"'))
+    const seedPkg = JSON.parse(readFileSync(join(seed, 'package.json'), 'utf8'))
+    seedPkg.version = '9.9.9'
+    writeFileSync(join(seed, 'package.json'), JSON.stringify(seedPkg, null, 2) + '\n')
     git(['init', '-q'], seed)
     git(['add', '-A'], seed)
     git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'seed v9.9.9'], seed)

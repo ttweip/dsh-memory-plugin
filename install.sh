@@ -250,14 +250,15 @@ init_library() {
   else
     echo "创建空记忆库 → $lib"
     mkdir -p "$lib/sessions" "$lib/scripts" "$lib/topics"
-    cp "$RUNTIME_DIR"/memory_search.sh "$RUNTIME_DIR"/memory_sync.sh \
+    cp "$RUNTIME_DIR"/memory_search.sh "$RUNTIME_DIR"/memory_search.py \
+       "$RUNTIME_DIR"/memory_get.py "$RUNTIME_DIR"/memory_sync.sh \
        "$RUNTIME_DIR"/audit_secrets.sh "$RUNTIME_DIR"/selfcheck.sh \
        "$RUNTIME_DIR"/memory_add.py "$RUNTIME_DIR"/memory_suggest.py \
        "$RUNTIME_DIR"/synonyms.tsv "$lib/scripts/"
-    chmod +x "$lib/scripts"/*.sh "$lib/scripts"/*.py
+    chmod 755 "$lib/scripts"/*.sh "$lib/scripts"/*.py
     [ -f "$lib/PROTOCOL.md" ] || cp "$RUNTIME_DIR/PROTOCOL.md" "$lib/PROTOCOL.md"
     [ -f "$lib/MEMORY.md" ]   || cp "$RUNTIME_DIR/MEMORY.md.template" "$lib/MEMORY.md"
-    [ -f "$lib/.gitignore" ]  || printf 'sessions/\n*.tmp\n.DS_Store\n' > "$lib/.gitignore"
+    [ -f "$lib/.gitignore" ]  || printf 'sessions/\n*.tmp\n.DS_Store\n__pycache__/\n*.pyc\n' > "$lib/.gitignore"
   fi
 
   if [ "$do_git" -eq 1 ]; then
@@ -295,10 +296,11 @@ sync_runtime() {
   local sdir="$src/scripts"
   [ -f "$sdir/memory_search.sh" ] || { echo "❌ 不是记忆库（缺 scripts/memory_search.sh）：$src" >&2; return 1; }
   mkdir -p "$RUNTIME_DIR"
-  cp "$sdir"/memory_search.sh "$sdir"/memory_sync.sh "$sdir"/audit_secrets.sh "$sdir"/selfcheck.sh \
+  cp "$sdir"/memory_search.sh "$sdir"/memory_search.py "$sdir"/memory_get.py \
+     "$sdir"/memory_sync.sh "$sdir"/audit_secrets.sh "$sdir"/selfcheck.sh \
      "$sdir"/memory_add.py "$sdir"/memory_suggest.py "$sdir"/synonyms.tsv "$RUNTIME_DIR/"
   [ -f "$src/PROTOCOL.md" ] && cp "$src/PROTOCOL.md" "$RUNTIME_DIR/PROTOCOL.md"
-  chmod +x "$RUNTIME_DIR"/*.sh "$RUNTIME_DIR"/*.py
+  chmod 755 "$RUNTIME_DIR"/*.sh "$RUNTIME_DIR"/*.py
   echo "✅ runtime/ 已同步（源：${src}，$(ls -1 "$RUNTIME_DIR" | wc -l) 个文件）"
   echo "   注意：MEMORY.md.template 不随同步改动（手工维护）"
 }

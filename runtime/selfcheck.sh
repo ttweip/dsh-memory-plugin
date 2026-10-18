@@ -50,12 +50,15 @@ echo "═══════ 0. 语法 ═══════"
 for s in memory_search.sh memory_sync.sh audit_secrets.sh; do
   assert "bash -n scripts/$s" bash -n "scripts/$s"
 done
+assert "python 语法 scripts/memory_search.py" python3 -c "import ast; ast.parse(open('scripts/memory_search.py').read())"
+assert "python 语法 scripts/memory_get.py" python3 -c "import ast; ast.parse(open('scripts/memory_get.py').read())"
 assert "python 语法 scripts/memory_add.py" python3 -c "import ast; ast.parse(open('scripts/memory_add.py').read())"
 
 echo "═══════ 1. memory_search.sh（假库）═══════"
 FM="$(mktemp -d)"; trap 'rm -rf "$FM"' RETURN
 mkdir -p "$FM/scripts"
-cp scripts/memory_search.sh "$FM/scripts/"
+cp scripts/memory_search.sh scripts/memory_search.py "$FM/scripts/"
+cp scripts/memory_get.py "$FM/scripts/"
 cp scripts/synonyms.tsv "$FM/scripts/"
 cat > "$FM/MEMORY.md" <<'EOF'
 # Project memory
@@ -139,7 +142,7 @@ echo "$out" | grep -q "归档主题有命中" && ok "归档命中提示（崩溃
 
 out=$(S --all 崩溃 2>/dev/null)
 echo "$out" | grep -q "归档记忆" && ok "M2: --all 显示归档段" || bad "M2: 归档段缺失"
-n=$(echo "$out" | grep -c '^  [0-9]')
+n=$(echo "$out" | grep -c '^  L[0-9]')
 [ "$n" -gt 0 ] && ok "M2: 归档段有明细（$n 行）" || bad "M2: 归档段被挤空"
 
 out=$(S 防火墙 --all 2>/dev/null)
@@ -178,7 +181,8 @@ echo "$out" | grep -q "MEMORY-本地.md" && echo "$out" | grep -q "reference/128
 out=$(S alpha beta 2>/dev/null)
 echo "$out" | grep -q "MEMORY-组合.md" && ! echo "$out" | grep -q "MEMORY-alpha单.md" \
   && ! echo "$out" | grep -q "MEMORY-beta单.md" \
-  && ok "v1.8: 多词默认严格 AND" || bad "v1.8: 严格 AND 失效→$out"
+  && echo "$out" | grep -q "命中 2 组" \
+  && ok "v1.8: 多词默认严格 AND，命中条目优先" || bad "v1.8: 严格 AND 失效→$out"
 out=$(S --any alpha beta 2>/dev/null)
 echo "$out" | grep -q "MEMORY-组合.md" && echo "$out" | grep -q "MEMORY-alpha单.md" \
   && echo "$out" | grep -q "MEMORY-beta单.md" \
@@ -201,7 +205,12 @@ echo "$out" | grep -q "还有 1 个文件未列出" \
   && ok "v1.8: 默认 MAX_FILES=3 生效" || bad "v1.8: 默认文件预算失效→$out"
 out=$(S 多行词 2>/dev/null)
 echo "$out" | grep -q "该文件还有" \
-  && ok "v1.8: 默认 MAX_PER_FILE=3 生效" || bad "v1.8: 默认行预算失效→$out"
+  && echo "$out" | grep -qE '^  L[0-9]+:' \
+  && ok "v1.9: 默认条目预算与行号格式生效" || bad "v1.9: 条目预算/格式失效→$out"
+out=$(MEMORY_SEARCH_MAX_BYTES=300 bash "$FM/scripts/memory_search.sh" 多行词 2>/dev/null)
+bytes=$(printf '%s' "$out" | wc -c | tr -d ' ')
+[ "$bytes" -le 300 ] && echo "$out" | grep -q "预算，已截断" \
+  && ok "v1.9: 字节预算硬上限生效（${bytes}B）" || bad "v1.9: 字节预算失效（${bytes}B）→$out"
 out=$(S --scope bad 层级独有 2>&1 || true)
 echo "$out" | grep -q "仅支持 local|reference|all" \
   && ok "v1.8: 非法 scope 明确报错" || bad "v1.8: 非法 scope 未报错→$out"
@@ -364,6 +373,19 @@ out=$(MEMORY_SEARCH_MAX_FILES=1 bash "$FM/scripts/memory_search.sh" 卡死 2>/de
 echo "$out" | grep -q "还有.*文件未列出" && ok "SE3: MAX_FILES 截断提示" || bad "SE3: 缺失"
 out=$(MEMORY_SEARCH_LINE_WIDTH=20 bash "$FM/scripts/memory_search.sh" 防火墙 2>/dev/null)
 echo "$out" | grep -q "…" && ok "SE4: LINE_WIDTH 截断生效" || bad "SE4: 未截断"
+
+echo "═══════ 7.5 memory_get.py 精准读取 ═══════"
+G() { python3 "$FM/scripts/memory_get.py" "$@"; }
+out=$(G --path MEMORY-报告体.md --section '1. 现象' 2>&1)
+echo "$out" | grep -q "卡死相关内容" && ! echo "$out" | grep -q "完毕" \
+  && ok "MG1: section 限定读取" || bad "MG1: section 失败→$out"
+out=$(G --path MEMORY-报告体.md --offset 3 --limit 1 2>&1)
+echo "$out" | grep -q "L3-L3" && echo "$out" | grep -q "卡死相关内容" \
+  && ok "MG2: offset/limit 读取" || bad "MG2: offset/limit 失败→$out"
+out=$(G --path ../MEMORY.md 2>&1 || true)
+echo "$out" | grep -q "相对路径" && ok "MG3: 路径穿越拒绝" || bad "MG3: 未拒绝→$out"
+out=$(G --path MEMORY.md 2>&1 || true)
+echo "$out" | grep -q "MEMORY-\*.md" && ok "MG4: 非主题文件拒绝" || bad "MG4: 未拒绝→$out"
 
 echo "═══════ 8. memory_add.py 报错路径 ═══════"
 assert_not "AD1: 空 topic 拒绝" python3 "$AM/scripts/memory_add.py" "" "t" "b"

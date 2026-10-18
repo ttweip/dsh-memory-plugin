@@ -1,7 +1,8 @@
-# dsh 记忆协议 v1.4（PROTOCOL）
+# dsh 记忆协议 v1.5（PROTOCOL）
 
 > 本文件是 dsh（DeepSeek Harness）会话的**记忆读写规范**。
 > **默认不预读**本协议或 `MEMORY.md`；只在任务需要既往结论、规则或环境事实时按需检索，结束前按需落盘。
+> v1.5（2026-10-18）：检索改为 Python 单进程；输出按条目聚合并有文件/条目/字节预算；新增 `memory_get` 精准读取，命中后不要整篇读。
 > v1.4（2026-10-18）：检索惰性加载——会话提示不再要求预读；`memory_search` 默认只查本地知识层、多词严格 AND、输出有硬预算；他机 reference 层需显式 `scope`。
 > v1.3（2026-09-22）：主题**按域分组**——`topics/<域>/MEMORY-<主题>.md`，域固定 `dsh` / `idc-ops` / `projects` / `knowledge`；`memory_add` 域感知（See 行自动插进 MEMORY.md 对应 `### <域>` 小节）；存量 34 个主题已迁移，根目录平铺写法仅作历史兼容。
 > v1.2（2026-09-05）：主题文件支持 `topics/<域>/` 子目录；新增 `memory_suggest` 候选提示；发布流程脚本化（scripts/release.sh + release_checklist.md）。
@@ -40,7 +41,7 @@
 
 1. 先 `memory_search`（默认 strict AND + 本地层；必要时 `any=true` 放宽，`scope=all/reference` 查他机参考层）
 2. 需要浏览全部主题时再读 `MEMORY.md` 索引；不要为了“熟悉记忆”通读
-3. 命中后按输出路径读对应 `topics/<域>/MEMORY-<主题>.md` 原文，只读相关段落
+3. 命中后用 `memory_get` 按 `path + section/offset/limit` 精准读取，不要直接整篇读主题文件
 
 > 记忆检索是“按需取用”，不是每会话的固定开场动作。
 
@@ -118,10 +119,11 @@
 
 1. **会话引导提示**：每会话仅注入一次轻量「存在性提示」（记忆库路径 + 按需检索 + 静默原则）。**不要求预读 PROTOCOL/MEMORY 正文，不注入** MEMORY.md、主题条目、checkpoint 内容
 2. **注入时机**：首次工具调用后注入一次；纯闲聊会话（无工具调用）不注入；resume 时历史已有该提示则不重复
-3. **记忆内容进入上下文的唯一方式**：模型按需调用 `memory_search`。默认只查本地知识层的 `MEMORY-*.md` 主题、多词严格 AND，并限制为 3 文件 / 每文件 3 行 / 全局 20 行
+3. **记忆内容进入上下文的唯一方式**：模型按需调用 `memory_search`，命中后用 `memory_get` 精准读取。默认只查本地知识层的 `MEMORY-*.md` 主题、多词严格 AND；按条目输出，默认 3 文件 / 每文件 3 条 / 约 2KB 总预算
 4. **参考层隔离**：`reference/`（他机知识）默认不参与检索；必须显式 `scope=reference` 或 `scope=all`
-5. **checkpoint 摘要注入**（默认关闭 `config.injectRecentCheckpoint=false`，按工作区显式开启）必须满足：
+5. **精准读取护栏**：`memory_get` 只允许 `MEMORY-*.md` 主题文件，按小节/行号/行数读取，默认 60 行、约 6KB 上限；禁止无界读取整篇
+6. **checkpoint 摘要注入**（默认关闭 `config.injectRecentCheckpoint=false`，按工作区显式开启）必须满足：
    - 只注入最近一份 checkpoint 的 Active intent / Next action **两行**
    - 硬上限 200 字，超出截断；不注入 Current work 等详情
-6. **提示去重**：协议细节归插件提示，AGENTS.md / instruction-hint 只留指针，避免每会话双份注入
-7. **登记制**：任何新增的自动注入类功能，必须在本节登记（注入什么 / 何时 / 上限），未登记按「不注入」处理
+7. **提示去重**：协议细节归插件提示，AGENTS.md / instruction-hint 只留指针，避免每会话双份注入
+8. **登记制**：任何新增的自动注入类功能，必须在本节登记（注入什么 / 何时 / 上限），未登记按「不注入」处理
