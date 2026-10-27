@@ -82,6 +82,7 @@ bash install.sh web        # 只装 web
 DSH_MEMORY_DIR=/自定义/路径 bash install.sh all   # 显式指定记忆库
 
 bash install.sh update     # 更新：拉 GitLab/GitHub 最新 tag 覆盖插件目录并重装配置
+bash install.sh sync-memory ~/.dsh-memory  # 已有记忆库：同步新脚本（不动 MEMORY/topics/sessions）
 bash install.sh uninstall  # 卸载：从 patch.yml 精确摘除本插件块
 ```
 
@@ -118,6 +119,11 @@ bash install.sh uninstall  # 卸载：从 patch.yml 精确摘除本插件块
 - 插件会自动检测记忆库检索脚本版本：旧版脚本仍可跑默认查询并提示同步，显式使用 `scope`/`any` 时会明确拒绝，避免静默跑错范围。
 - 输出预算可用脚本环境变量调整：`MEMORY_SEARCH_MAX_FILES` / `MEMORY_SEARCH_MAX_PER_FILE` / `MEMORY_SEARCH_MAX_LINES` / `MEMORY_SEARCH_MAX_BYTES` / `MEMORY_SEARCH_ENTRY_WIDTH`。
 - v1.9 检索内核为 `memory_search.py` 单进程实现；本机实测 22 个本地主题约 0.4s、94 个全量主题约 0.4s（旧 bash 版约 4–17s）。
+
+## CI
+
+- **GitHub Actions**：`.github/workflows/ci.yml` 自动运行 npm 单测 + 新库 selfcheck（UTF-8/C locale）。
+- **GitLab CI**：`.gitlab-ci.yml` 已配置，但当前 GitLab 没有注册 runner。为避免产生 `stuck_pending_no_matching_runners` 红流水线，默认**不创建自动 pipeline**；注册 runner 后在 GitLab UI 手动 Run pipeline 并设置 `RUN_GITLAB_CI=1` 即可启用。
 
 ## 使用
 

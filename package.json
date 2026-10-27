@@ -1,6 +1,6 @@
 {
   "name": "dsh-memory-plugin",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "dsh 文件式记忆库插件：惰性会话引导 + Python 单进程检索、memory_get 精准读取、memory_add / memory_suggest / memory_sync / memory_init（v1.9 条目化输出 + 字节预算 + CI）",
   "type": "module",
   "main": "index.mjs",

@@ -10,6 +10,7 @@
 #         --no-git           不执行 git init（也不装 pre-commit 防泄漏钩子）
 #         --force            目标已有记忆库时也继续（覆盖脚本/模板，不动已有主题文件）
 #   install.sh sync-runtime [记忆库路径]        # 把记忆库 scripts/ 同步进插件 runtime/（发版前用）
+#   install.sh sync-memory [--force] [目录]     # ★ 把插件 runtime/ 新脚本同步到已有记忆库（不动 MEMORY/topics/sessions）
 #
 # 记忆库定位（v1.1）：默认不写 memoryDir（插件从会话 cwd 动态向上发现 .dsh-memory/），
 # 仅当设置 DSH_MEMORY_DIR 环境变量时才显式写入配置。
@@ -53,7 +54,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 action=install
 case "${1:-all}" in
   update|uninstall|install) action="$1"; shift || true ;;
-  init|sync-runtime) action="$1"; shift || true ;;
+  init|sync-runtime|sync-memory) action="$1"; shift || true ;;
 esac
 
 targets=()
@@ -63,7 +64,7 @@ if [ "$action" = install ] || [ "$action" = update ] || [ "$action" = uninstall 
     case "$_target" in
       all)     targets+=(web dsh-tui) ;;
       web|dsh-tui) targets+=("$_target") ;;
-      *) echo "用法: $0 [install|update|uninstall|init|sync-runtime] [web|dsh-tui|all]" >&2; exit 1 ;;
+      *) echo "用法: $0 [install|update|uninstall|init|sync-runtime|sync-memory] [web|dsh-tui|all]" >&2; exit 1 ;;
     esac
   done
 fi
@@ -289,6 +290,45 @@ init_library() {
   [ -n "$remote" ] || echo "    · 备份：git -C $lib remote add origin <url> 后跑 bash $lib/scripts/memory_sync.sh"
 }
 
+sync_memory_library() {
+  local force=0
+  if [ "${1:-}" = "--force" ]; then force=1; shift; fi
+  local dir="${1:-${DSH_MEMORY_DIR:-$HOME/.dsh-memory}}"
+  [ -d "$dir" ] || { echo "❌ 记忆库目录不存在：$dir" >&2; return 1; }
+  dir="$(cd "$dir" && pwd)"
+  [ -f "$dir/MEMORY.md" ] || { echo "❌ 不是有效记忆库（缺 MEMORY.md）：$dir" >&2; return 1; }
+  local sdir="$dir/scripts"
+  mkdir -p "$sdir"
+
+  # 安全护栏：脚本/PROTOCOL 有未提交改动时默认中止，避免覆盖人工修改。
+  if [ "$force" -ne 1 ] && git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if [ -n "$(git -C "$dir" status --porcelain -- scripts PROTOCOL.md 2>/dev/null)" ]; then
+      echo "❌ 记忆库 scripts/ 或 PROTOCOL.md 有未提交改动，已中止（先 commit/备份，或加 --force）" >&2
+      return 1
+    fi
+  fi
+
+  cp "$RUNTIME_DIR"/memory_search.sh "$RUNTIME_DIR"/memory_search.py \
+     "$RUNTIME_DIR"/memory_get.py "$RUNTIME_DIR"/memory_sync.sh \
+     "$RUNTIME_DIR"/audit_secrets.sh "$RUNTIME_DIR"/selfcheck.sh \
+     "$RUNTIME_DIR"/memory_add.py "$RUNTIME_DIR"/memory_suggest.py \
+     "$RUNTIME_DIR"/synonyms.tsv "$sdir/"
+  cp "$RUNTIME_DIR"/PROTOCOL.md "$dir/PROTOCOL.md"
+  chmod 755 "$sdir"/*.sh "$sdir"/*.py 2>/dev/null || true
+
+  if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ -x "$sdir/audit_secrets.sh" ]; then
+    if ( cd "$dir" && bash scripts/audit_secrets.sh --install >/dev/null 2>&1 ); then
+      echo "  ✓ pre-commit 防泄漏钩子已重装"
+    else
+      echo "  ⚠ 钩子安装失败（可手动：cd $dir && bash scripts/audit_secrets.sh --install）"
+    fi
+  fi
+
+  echo "✅ 记忆库脚本已同步：$dir"
+  echo "   （MEMORY.md / topics/ / sessions/ 未改动）"
+  echo "   新增/更新：memory_search.py / memory_get.py / memory_search.sh / PROTOCOL.md"
+}
+
 sync_runtime() {
   local src="${1:-${DSH_MEMORY_DIR:-$PWD/.dsh-memory}}"
   [ -d "$src" ] || { echo "❌ 记忆库目录不存在：$src" >&2; return 1; }
@@ -312,6 +352,9 @@ case "$action" in
     ;;
   update)
     update_files
+    if [ -f "${DSH_MEMORY_DIR:-$HOME/.dsh-memory}/MEMORY.md" ]; then
+      echo "提示：已有记忆库脚本请运行：bash $SELF sync-memory ${DSH_MEMORY_DIR:-$HOME/.dsh-memory}"
+    fi
     # L2 修复：install.sh 已被更新内容覆盖，exec 新脚本执行 install（避免旧 fd 继续读被覆盖文件）
     exec bash "$SELF" install "${targets[@]}"
     ;;
@@ -324,5 +367,8 @@ case "$action" in
     ;;
   sync-runtime)
     sync_runtime "$@"
+    ;;
+  sync-memory)
+    sync_memory_library "$@"
     ;;
 esac

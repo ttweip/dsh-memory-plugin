@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.9.1（2026-10-27，CI runner 收口 / 记忆库脚本升级入口）
+
+### 修复
+- **GitLab CI 无 runner 导致红流水线**：当前 GitLab 项目没有任何 runner，push 会产生 `stuck_pending_no_matching_runners`。`.gitlab-ci.yml` 增加 `workflow.rules`：默认不创建自动 pipeline；注册 runner 后在 UI 手动 Run pipeline 并设置 `RUN_GITLAB_CI=1` 即可启用。GitHub Actions 保持自动运行且已通过。
+- **已有记忆库脚本升级入口**：新增 `install.sh sync-memory [--force] [目录]`，把插件 `runtime/` 的检索/读取/同步脚本与 PROTOCOL 同步到已有 `.dsh-memory/`：
+  - 不修改 `MEMORY.md`、`topics/`、`sessions/`
+  - 保留本地额外脚本
+  - 默认检测 `scripts/` / `PROTOCOL.md` 的未提交改动并中止；`--force` 可强制
+  - 自动重装 pre-commit 防泄漏钩子
+  - `install.sh update` 会提示下一步执行该命令
+- README 补齐 GitHub Actions / GitLab CI 状态与手动启用方式。
+
+### 测试
+- `npm test`：43/43 通过（新增 sync-memory 正常同步、脏改动保护两个安装链路用例）。
+- 记忆库 `selfcheck.sh`：85/85 通过。
+
 ## v1.9.0（2026-10-18，单进程检索 / 条目化预算 / memory_get / CI）
 
 ### 性能

@@ -7,7 +7,7 @@
 ## 发布侧（自动化已覆盖）
 - [ ] **`bash install.sh sync-runtime <记忆库路径>` 已跑**（把记忆库最新 scripts/ 与 PROTOCOL.md 拉进插件 `runtime/`，否则新环境 init 出的是旧脚本）
 - [ ] `node --check index.mjs` 通过
-- [ ] `npm test` 全绿（当前 ≥41 用例；注意上面的偶发说明）
+- [ ] `npm test` 全绿（当前 ≥43 用例；注意上面的偶发说明）
 - [ ] 记忆库 `bash scripts/selfcheck.sh` 全绿（当前 ≥85 用例；建议 **C locale 与 UTF-8 locale 各跑一次**：`env -u LANG LC_ALL=C bash scripts/selfcheck.sh`，v1.7.0 起两者均应全绿）
 - [ ] `npm test` 跨轮次重复 ≥3 次，确认无偶发失败
 - [ ] GitLab release 已建、GitHub release 已建（两端 tag 对齐）
@@ -36,6 +36,8 @@
 
 ## 安装链路
 - [ ] `bash install.sh update` 实测（拉最新 tag 覆盖本地 + 配置幂等）
+- [ ] `bash install.sh sync-memory <已有记忆库>` 实测（脚本升级，MEMORY/topics/sessions 不变）
+- [ ] scripts/PROTOCOL 有未提交改动时 sync-memory 默认中止，`--force` 可继续
 - [ ] `bash install.sh uninstall` + `install.sh all` 恢复（假 HOME 测试过，真机按需）
 - [ ] **`bash install.sh init <临时目录>` 实测**（脚手架产物齐全、git 与钩子在位、二次运行拒绝覆盖）
 
@@ -47,7 +49,8 @@
 
 ## 安全
 - [ ] `bash scripts/audit_secrets.sh --test` 自测通过
-- [ ] CI 流水线（`.gitlab-ci.yml` / `.github/workflows/ci.yml`）已成功跑过 npm + selfcheck
+- [ ] GitHub Actions CI 已成功跑过 npm + selfcheck
+- [ ] GitLab CI 默认不自动建 pipeline；注册 runner 后以 `RUN_GITLAB_CI=1` 手动跑通
 - [ ] 发布说明 / commit message / 代码中无真实凭据（ghp_/glpat- 明文）
 - [ ] 记忆库 pre-commit hook 在位（新 clone 需重跑 --install）
 

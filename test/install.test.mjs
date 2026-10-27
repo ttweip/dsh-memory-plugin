@@ -98,6 +98,50 @@ test('install.sh init --no-git：不建仓库；sync-runtime 可从记忆库刷�
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('install.sh sync-memory：升级已有记忆库脚本，不动 MEMORY/topics/sessions', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-sync-mem-'))
+  try {
+    const mem = join(root, '.dsh-memory')
+    mkdirSync(join(mem, 'scripts'), { recursive: true })
+    mkdirSync(join(mem, 'topics'), { recursive: true })
+    mkdirSync(join(mem, 'sessions'), { recursive: true })
+    const memoryText = '# my index\nKEEP-ME\n'
+    writeFileSync(join(mem, 'MEMORY.md'), memoryText)
+    writeFileSync(join(mem, 'PROTOCOL.md'), '# old protocol\n')
+    writeFileSync(join(mem, 'scripts', 'custom.sh'), 'echo custom\n')
+    writeFileSync(join(mem, 'topics', 'MEMORY-keep.md'), 'keep-topic\n')
+    writeFileSync(join(mem, 'sessions', 'keep.md'), 'keep-session\n')
+
+    const out = sh(['sync-memory', mem])
+    assert.ok(out.includes('记忆库脚本已同步'), out)
+    for (const f of ['memory_search.sh', 'memory_search.py', 'memory_get.py', 'selfcheck.sh']) {
+      assert.ok(existsSync(join(mem, 'scripts', f)), `缺 ${f}`)
+    }
+    assert.equal(readFileSync(join(mem, 'MEMORY.md'), 'utf8'), memoryText)
+    assert.equal(readFileSync(join(mem, 'topics', 'MEMORY-keep.md'), 'utf8'), 'keep-topic\n')
+    assert.equal(readFileSync(join(mem, 'sessions', 'keep.md'), 'utf8'), 'keep-session\n')
+    assert.ok(existsSync(join(mem, 'scripts', 'custom.sh')), 'sync-memory 不应删除本地额外脚本')
+    assert.match(readFileSync(join(mem, 'PROTOCOL.md'), 'utf8'), /v1\.5/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('install.sh sync-memory：scripts/PROTOCOL 脏改动默认中止，--force 可继续', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-sync-mem-dirty-'))
+  try {
+    const mem = join(root, '.dsh-memory')
+    mkdirSync(join(mem, 'scripts'), { recursive: true })
+    writeFileSync(join(mem, 'MEMORY.md'), '# index\n')
+    writeFileSync(join(mem, 'PROTOCOL.md'), '# old\n')
+    git(['init', '-q'], mem)
+    git(['add', '-A'], mem)
+    git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init'], mem)
+    writeFileSync(join(mem, 'PROTOCOL.md'), '# dirty\n')
+    assert.throws(() => sh(['sync-memory', mem]))
+    const out = sh(['sync-memory', '--force', mem])
+    assert.ok(out.includes('记忆库脚本已同步'), out)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('install.sh update：本地远端全流程（旧档更新→重装 profile，防 exec/install 解析回归）', () => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-update-'))
   try {
